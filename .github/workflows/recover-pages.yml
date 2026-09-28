@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # This is a one-time recovery from the previously published snapshot.
-      # No additional private source or credentials are copied into this repository.
       - uses: actions/checkout@v4
         with:
           ref: 4ec57cbb15712cd823470212f5074b889ff0f1ad
@@ -36,8 +34,10 @@ jobs:
         run: node ops/recover-assets.mjs recovered
       - name: Install frozen dependencies
         run: |
-          pnpm --dir recovered/apps/app install --frozen-lockfile
-          pnpm --dir recovered/apps/owner install --frozen-lockfile
+          for surface in app owner; do
+            printf 'overrides:\n  miniflare>sharp: 0.35.4\n' > "recovered/apps/$surface/pnpm-workspace.yaml"
+            pnpm --dir "recovered/apps/$surface" install --frozen-lockfile
+          done
       - name: Typecheck and build isolated surfaces
         run: |
           node ops/package-pages.mjs recovered app /muumei-public/ https://mumei-s.github.io/muumei-public/
@@ -96,8 +96,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # Initial Pages enablement is an account administration setting.
-      # Do not attempt to bypass it with unrelated repositories or tokens.
       - uses: actions/configure-pages@v5
       - uses: actions/deploy-pages@v4
         id: deployment
