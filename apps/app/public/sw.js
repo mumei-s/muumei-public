@@ -1,0 +1,8 @@
+const VERSION='muumei-0.10.1-pay-guidance-r1';const STATIC=['/offline.html','/icons/icon-192.png'];
+self.addEventListener('install',e=>e.waitUntil(caches.open(VERSION).then(c=>c.addAll(STATIC))));
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('muumei-')&&k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting()});
+// Never cache authenticated pages, API responses, signed files or conversations.
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.mode==='navigate'&&u.origin===self.location.origin)e.respondWith(fetch(e.request).catch(()=>caches.match('/offline.html')))});
+self.addEventListener('push',e=>{let data={title:'MUUMEI',body:'新しいお知らせがあります',url:'/app/notifications'};try{Object.assign(data,e.data.json())}catch{};const url=typeof data.url==='string'&&/^\/(?!\/)/.test(data.url)&&!data.url.includes('\\')?data.url:'/app/notifications';e.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:'/icons/icon-192.png',badge:'/icons/badge-96.png',tag:data.id||'muumei',data:{url}}))});
+self.addEventListener('notificationclick',e=>{e.notification.close();const target=new URL(e.notification.data?.url||'/app/notifications',self.location.origin);if(target.origin!==self.location.origin)return;e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async list=>{for(const client of list){if(new URL(client.url).origin===target.origin){await client.navigate(target.href);return client.focus()}}return self.clients.openWindow(target.href)}))});
