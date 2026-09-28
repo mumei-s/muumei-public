@@ -32,10 +32,19 @@ jobs:
       - run: npm install --global pnpm@11.25.0
       - name: Restore and verify missing public media
         run: node ops/recover-assets.mjs recovered
-      - name: Install frozen dependencies
+      - name: Install frozen dependencies with reviewed build permissions
         run: |
+          set -eu
           for surface in app owner; do
-            printf 'overrides:\n  miniflare>sharp: 0.35.4\n' > "recovered/apps/$surface/pnpm-workspace.yaml"
+            cat > "recovered/apps/$surface/pnpm-workspace.yaml" <<'YAML'
+          overrides:
+            miniflare>sharp: 0.35.4
+          strictDepBuilds: true
+          allowBuilds:
+            'esbuild@0.18.20 || 0.25.12 || 0.27.3 || 0.28.0': true
+            'unrs-resolver@1.11.1': true
+            'workerd@1.20260515.1': true
+          YAML
             pnpm --dir "recovered/apps/$surface" install --frozen-lockfile
           done
       - name: Typecheck and build isolated surfaces
