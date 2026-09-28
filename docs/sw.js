@@ -1,0 +1,9 @@
+const BASE="/muumei-public/",PREFIX="muumei-pages-app-58589e0085-",VERSION=PREFIX+"98edea6916476295";
+const local=p=>BASE+p.replace(/^\//,'');const FALLBACK=local('offline.html');
+self.addEventListener('install',e=>e.waitUntil(caches.open(VERSION).then(c=>c.addAll([FALLBACK,local('icons/icon-192.png')]))));
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting()});
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.mode==='navigate'&&u.origin===self.location.origin&&u.pathname.startsWith(BASE))e.respondWith(fetch(e.request).catch(()=>caches.match(FALLBACK)))});
+function destination(value){if(typeof value!=='string'||!/^\/(?!\/)/.test(value)||value.includes('\\'))return local('app/notifications');const u=new URL(value.startsWith(BASE)?value:local(value),self.location.origin);return u.origin===self.location.origin&&u.pathname.startsWith(BASE)?u.pathname+u.search+u.hash:local('app/notifications')}
+self.addEventListener('push',e=>{let data={title:'MUUMEI',body:'新しいお知らせがあります',url:'/app/notifications'};try{Object.assign(data,e.data.json())}catch{}e.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:local('icons/icon-192.png'),badge:local('icons/badge-96.png'),tag:data.id||'muumei',data:{url:destination(data.url)}}))});
+self.addEventListener('notificationclick',e=>{e.notification.close();const target=new URL(destination(e.notification.data?.url),self.location.origin);e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async list=>{for(const c of list){const u=new URL(c.url);if(u.origin===target.origin&&u.pathname.startsWith(BASE)){await c.navigate(target.href);return c.focus()}}return self.clients.openWindow(target.href)}))});
