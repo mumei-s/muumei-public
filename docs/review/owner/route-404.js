@@ -1,0 +1,1 @@
+const b="/muumei-public/review/owner/";if(location.pathname.startsWith(b)){const r=location.pathname.slice(b.length)+location.search;location.replace(b+'?__muumei_route='+encodeURIComponent(r)+location.hash)}else{document.querySelector('p').textContent='このページは見つかりません'};

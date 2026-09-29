@@ -1,0 +1,33 @@
+{
+  "id": "/muumei-public/review/owner/",
+  "name": "MUUMEI OWNER",
+  "short_name": "OWNER",
+  "description": "仕事で生まれた縁を、次へ。",
+  "lang": "ja",
+  "start_url": "/muumei-public/review/owner/dashboard",
+  "scope": "/muumei-public/review/owner/",
+  "display": "standalone",
+  "background_color": "#101319",
+  "theme_color": "#101319",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/muumei-public/review/owner/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/muumei-public/review/owner/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/muumei-public/review/owner/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

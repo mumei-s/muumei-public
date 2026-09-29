@@ -1,0 +1,33 @@
+{
+  "id": "/muumei-public/review/member/",
+  "name": "MUUMEI",
+  "short_name": "MUUMEI",
+  "description": "仕事で生まれた縁を、次へ。",
+  "lang": "ja",
+  "start_url": "/muumei-public/review/member/app/home",
+  "scope": "/muumei-public/review/member/",
+  "display": "standalone",
+  "background_color": "#101319",
+  "theme_color": "#101319",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/muumei-public/review/member/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/muumei-public/review/member/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/muumei-public/review/member/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
