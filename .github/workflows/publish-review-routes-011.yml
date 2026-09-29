@@ -1,0 +1,95 @@
+name: Publish review deep-route correction 0.11
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-review-routes-011.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-recovery
+  cancel-in-progress: false
+env:
+  SOURCE_REVISION: 13cc078a95c94773fb03008e98631bb0c28df4a4
+  ROUTING_SOURCE_REVISION: d0d5b5aff42b4d1fcd3261d2824c6e7a20b0827e
+  ROUTER_SHA256: 49ee806d88b53f202f131dd0be9416a2e9e967167fd5b73796111e68ba041dbe
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original distribution and the exact two-file routing correction
+        run: |
+          python - <<'PY'
+          import pathlib,json,hashlib,os
+          root=pathlib.Path('docs');spec=json.loads(pathlib.Path('.github/releases/compact-manifest.json').read_text())
+          assert spec['sourceRevision']==os.environ['SOURCE_REVISION']
+          allowed={'route-404.js':os.environ['ROUTER_SHA256'],'404.html':'e080c3fe5082ac1c39a18add8923aa80043a19582c9590c2978587dad36d1058'}
+          for f in spec['files']:
+              expected=allowed.get(f['path'],f['sha256'])
+              assert hashlib.sha256((root/f['path']).read_bytes()).hexdigest()==expected,f['path']
+          for part in ['member','owner']:
+              c=json.loads((root/'review'/part/'muumei-config.json').read_text())
+              assert not c['url'] and not c['key'] and c['ready'] is False
+          print('Verified original compiled distribution plus two-file review routing correction')
+          PY
+      - name: Check role-specific routing, query preservation and unrelated project isolation
+        run: |
+          node - <<'JS'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');const source=fs.readFileSync('docs/route-404.js','utf8');
+          const cases=[['/muumei-public/review/member/demo/boards/abc','?source=direct','#x','/muumei-public/review/member/','demo/boards/abc?source=direct'],['/muumei-public/review/owner/demo/jobs/abc','','','/muumei-public/review/owner/','demo/jobs/abc'],['/muumei-public/demo/work/abc','?a=1','','/muumei-public/','demo/work/abc?a=1'],['/muumei-public/app/work/abc','','','/muumei-public/','app/work/abc'],['/note-insight/other','','',null,null]];
+          for(const [pathname,search,hash,base,route] of cases){let destination=null;vm.runInNewContext(source,{location:{pathname,search,hash,replace:value=>destination=value},document:{querySelector:()=>({})}});assert.equal(destination,base?base+'?__muumei_route='+encodeURIComponent(route)+hash:null)}
+          console.log('5 routing regression checks passed');
+          JS
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm the corrected routing bytes are actually public
+        run: |
+          python - <<'PY'
+          import urllib.request,hashlib,time,os
+          for attempt in range(30):
+              with urllib.request.urlopen('https://mumei-s.github.io/muumei-public/route-404.js?v=review-routes-1',timeout=20) as r:actual=hashlib.sha256(r.read()).hexdigest()
+              if actual==os.environ['ROUTER_SHA256']:break
+              time.sleep(3)
+          else:raise RuntimeError('Corrected review router is not live')
+          print('Confirmed corrected router at the live public URL')
+          PY
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual pages including review deep links and comment deletion
+        run: python .github/scripts/verify-compact-live.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-011-review-routes-live
+          path: verification/
+          retention-days: 7
