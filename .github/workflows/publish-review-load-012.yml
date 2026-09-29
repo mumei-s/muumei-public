@@ -1,0 +1,116 @@
+name: Correct review load-state race after QR release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-review-load-012.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-recovery
+  cancel-in-progress: false
+env:
+  SOURCE_REVISION: 37956ab6a7c077f8bc21cc6a6704842423cf1780
+  REVIEW_LOAD_SOURCE_REVISION: 94b93f965878f34ab223e8365e37824996a8785b
+  REVIEW_JS_SHA256: ecaed3c234c64e73ef2948d8e5ba56a4cf8c0cbbb39d4fe48ec3b41fcb3a4176
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply only the exact tested two-file loading correction
+        run: |
+          python - <<'PY'
+          import pathlib,json,hashlib,os
+          root=pathlib.Path('docs');manifest=pathlib.Path('.github/releases/compact-manifest.json');spec=json.loads(manifest.read_text())
+          assert spec['sourceRevision']==os.environ['SOURCE_REVISION']
+          assert spec['archiveSha256']=='b661fbef0c0f0e4ae363cd9e63f98b7380e08dfc139b4d6d86b4224f535e24d4'
+          for f in spec['files']:
+              assert hashlib.sha256((root/f['path']).read_bytes()).hexdigest()==f['sha256'],f['path']
+          old={'review/review.js':'d31ebcdaccc30e2db2f7588e9c1180a99163f9c0f69b1cd9957cad4a368ac2fb','review/index.html':'b88155ad144dcce4d0e903818d10d7e47b3244f24671e7fdea43d62beca093e2'}
+          new={'review/review.js':os.environ['REVIEW_JS_SHA256'],'review/index.html':'0d3d0fe4a72b79f49c00fcb2ed868b9776a587d2b1a17de8a017d07727b9d656'}
+          if spec.get('reviewLoadSourceRevision')!=os.environ['REVIEW_LOAD_SOURCE_REVISION']:
+              for name,digest in old.items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest,name
+              p=root/'review/review.js';text=p.read_text();before="beginViewLoad(Boolean(frame.contentDocument?.querySelector('#main')));";after="// The iframe load event may precede this parent script; React can mount #main later.\nbeginViewLoad(frame.contentDocument?.readyState==='complete');"
+              assert text.count(before)==1;p.write_text(text.replace(before,after))
+              p=root/'review/index.html';text=p.read_text();assert text.count('src="review.js"')==1;p.write_text(text.replace('src="review.js"','src="review.js?v=load-state-1"'))
+              for f in spec['files']:
+                  if f['path'] in new:f['sha256']=new[f['path']]
+              spec['reviewLoadSourceRevision']=os.environ['REVIEW_LOAD_SOURCE_REVISION']
+              spec['reviewLoadPatch']={'baseArchiveFiles':old,'correctedFiles':new}
+              manifest.write_text(json.dumps(spec,indent=2)+'\n')
+          for name,digest in new.items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest,name
+          assert json.loads((root/'muumei-config.json').read_text())['ready'] is False
+          print('Only review script initialization and its cache-version URL changed; real registration remains closed')
+          PY
+      - name: Preserve concurrent changes and store the verified public patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh auth setup-git
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'main changed; refusing overwrite'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/review/review.js docs/review/index.html .github/releases/compact-manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix false review loading timeout after early iframe load, source 94b93f9'
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm the exact corrected review script is public
+        run: |
+          python - <<'PY'
+          import urllib.request,hashlib,time,os
+          for attempt in range(30):
+              with urllib.request.urlopen('https://mumei-s.github.io/muumei-public/review/review.js?v=load-state-1',timeout=20) as r:actual=hashlib.sha256(r.read()).hexdigest()
+              if actual==os.environ['REVIEW_JS_SHA256']:break
+              time.sleep(3)
+          else:raise RuntimeError('Review load-state patch is not live')
+          print('Correct review script confirmed at the public URL')
+          PY
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Repeat every existing live community and review check
+        run: python .github/scripts/verify-compact-live.py
+      - name: Verify live QR interactions using only disposable browser-local data
+        run: python .github/scripts/verify-qr-live.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qr-012-load-fixed-live-verification
+          path: verification/
+          retention-days: 7
