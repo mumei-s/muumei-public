@@ -1,0 +1,84 @@
+name: Publish verified compact community and review 0.11
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-compact-011.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-recovery
+  cancel-in-progress: false
+env:
+  SOURCE_REVISION: 13cc078a95c94773fb03008e98631bb0c28df4a4
+  DISTRIBUTION_SHA256: 9546d10b62052370d15765b16df06d53fad273ef391a3cfb9f8abaa72e80ba3c
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: main
+      - name: Pin the current public branch before changing files
+        run: echo EXPECTED_PUBLIC_HEAD=$(git rev-parse HEAD) >> "$GITHUB_ENV"
+      - name: Verify checksum and safety of the compiled-only public artifact
+        env:
+          PUBLIC_DISTRIBUTION_URL: 'https://sdmntprjapaneast.oaiusercontent.com/files/00000000-b6e0-8209-b570-48493bad8362/raw?se=2026-09-29T15%3A08%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=aba333dd-1b8f-53ad-8285-e64472486b28&skoid=03727f49-62d3-42ac-8350-1c0e6559d238&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-29T03%3A47%3A05Z&ske=2026-09-30T03%3A47%3A05Z&sks=b&skv=2026-02-06&sig=D8J80k2ggO5Ms28XvYfN4ODWo3nVF92kp1hHl7dG1DQ%3D'
+        run: python .github/scripts/promote-compact.py
+      - name: Store verified distribution without overwriting concurrent changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh auth setup-git
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_PUBLIC_HEAD" || { echo 'Public main changed; refusing overwrite'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs .github/releases/compact-manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish verified compact community, deletable comments and isolated review 13cc078'
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual deployed pages with browser-local synthetic data only
+        run: python .github/scripts/verify-compact-live.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-011-live-verification
+          path: verification/
+          retention-days: 7
