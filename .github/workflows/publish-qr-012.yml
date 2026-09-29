@@ -1,0 +1,84 @@
+name: Publish verified QR onboarding screens 0.12
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-qr-012.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-recovery
+  cancel-in-progress: false
+# This is a tested screen release, not authorization to open real registration.
+env:
+  SOURCE_REVISION: 37956ab6a7c077f8bc21cc6a6704842423cf1780
+  DISTRIBUTION_SHA256: b661fbef0c0f0e4ae363cd9e63f98b7380e08dfc139b4d6d86b4224f535e24d4
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify checksum, private-source exclusion and review isolation before promotion
+        env:
+          PUBLIC_DISTRIBUTION_URL: 'https://productionresultssa12.blob.core.windows.net/actions-results/5243f98e-e476-448d-8b0e-c555930e1835/workflow-job-run-9d15f7f9-97ea-515d-bd00-8a71f25b58ab/artifacts/2e49cd819b2b894ce5da31beb18e6ed0b040601628a4ae9f26a1efe7eb102ab1.zip?rscd=attachment%3B+filename%3D%22qr-012-public-distribution.zip%22&rsct=application%2Fzip&se=2026-09-29T21%3A40%3A20Z&sig=V%2BTwE7FdT5zLOop%2FiA77hj3AJ1hVIvZ0IXsPJyJSL4E%3D&ske=2026-09-29T23%3A18%3A57Z&skoid=ca7593d4-ee42-46cd-af88-8b886a2f84eb&sks=b&skt=2026-09-29T19%3A18%3A57Z&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skv=2025-11-05&sp=r&spr=https&sr=b&st=2026-09-29T21%3A30%3A15Z&sv=2025-11-05'
+        run: python .github/scripts/promote-compact.py
+      - name: Store tested bytes without overwriting concurrent public changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh auth setup-git
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'Public main changed; refusing overwrite'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs .github/releases/compact-manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish tested QR onboarding UI 37956ab with signup closed pending live mail and OWNER verification'
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual public revision and existing community and review behavior
+        run: python .github/scripts/verify-compact-live.py
+      - name: Verify QR controls at the public URL using disposable local sample data only
+        run: python .github/scripts/verify-qr-live.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qr-012-live-verification
+          path: verification/
+          retention-days: 7
