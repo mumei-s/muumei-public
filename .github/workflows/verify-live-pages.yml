@@ -1,0 +1,150 @@
+name: Verify live MUUMEI Pages
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/verify-live-pages.yml']
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['Recover and deploy MUUMEI Pages']
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: muumei-live-verification
+  cancel-in-progress: false
+jobs:
+  verify-live:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Install isolated browser checker
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Check the actual public URL without credentials or data writes
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib, re, time, urllib.request
+          from playwright.sync_api import sync_playwright, expect
+
+          base = 'https://mumei-s.github.io/muumei-public/'
+          out = pathlib.Path('live-verification')
+          out.mkdir(exist_ok=True)
+          report = {'base_url': base, 'authenticated_e2e': False, 'owner_deployed': False, 'checks': []}
+
+          def record(name, ok, **details):
+              row = {'name': name, 'ok': bool(ok), **details}
+              report['checks'].append(row)
+              (out / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+              print(json.dumps(row, ensure_ascii=False), flush=True)
+
+          def ready(page):
+              expect(page.locator('#root')).to_have_text(re.compile(r'\S[\s\S]{30,}'), timeout=20000)
+
+          try:
+              expected = pathlib.Path('docs/index.html').read_bytes()
+              last_error = None
+              for attempt in range(6):
+                  try:
+                      req = urllib.request.Request(base + '?verify=' + str(time.time_ns()), headers={'Cache-Control': 'no-cache'})
+                      with urllib.request.urlopen(req, timeout=30) as response:
+                          live = response.read()
+                          if response.status != 200 or live != expected:
+                              raise RuntimeError('Live index is not the expected release yet')
+                      record('live-release-sha256', True, sha256=hashlib.sha256(live).hexdigest())
+                      break
+                  except Exception as error:
+                      last_error = error
+                      time.sleep(10)
+              else:
+                  raise last_error
+
+              with sync_playwright() as pw:
+                  browser = pw.chromium.launch()
+                  context = browser.new_context(service_workers='allow', reduced_motion='reduce')
+                  page = context.new_page()
+                  page.set_default_timeout(20000)
+                  js_errors = []
+                  page.on('pageerror', lambda e: js_errors.append(str(e)))
+                  for width in [360, 390, 1280]:
+                      page.set_viewport_size({'width': width, 'height': 900})
+                      for route in ['', 'login', 'about', 'demo/home', 'demo/work', 'demo/boards', 'demo/messages', 'demo/install']:
+                          label = str(width) + '-' + (route.replace('/', '-') or 'home')
+                          try:
+                              page.goto(base + route, wait_until='domcontentloaded')
+                              ready(page)
+                              page.wait_for_timeout(900)
+                              state = page.evaluate('''() => ({
+                                  overflow: document.documentElement.scrollWidth - innerWidth,
+                                  text: document.querySelector('#root').textContent,
+                                  photos: getComputedStyle(document.body).backgroundImage.includes('url('),
+                                  brokenImages: [...document.images].filter(i => i.getBoundingClientRect().top < innerHeight && i.getBoundingClientRect().bottom > 0 && (!i.complete || !i.naturalWidth)).map(i => i.getAttribute('src')),
+                                  badLinks: [...document.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(h => h.startsWith('/') && !h.startsWith('//') && !h.startsWith('/muumei-public/'))
+                              })''')
+                              errors = list(js_errors)
+                              if state['overflow'] > 2: errors.append('Horizontal overflow: ' + str(state['overflow']))
+                              if not state['photos']: errors.append('Photographic background missing')
+                              if state['brokenImages']: errors.append('Broken images: ' + repr(state['brokenImages']))
+                              if state['badLinks']: errors.append('Out-of-scope links: ' + repr(state['badLinks']))
+                              if 'このページは見つかりません' in state['text']: errors.append('Route failed')
+                              if not page.url.startswith(base): errors.append('Unexpected origin or base path')
+                              record(label, not errors, url=page.url, errors=errors)
+                          except Exception as error:
+                              record(label, False, url=page.url, errors=[str(error)])
+                          js_errors.clear()
+                          if width == 390 and route in ['', 'demo/home', 'demo/work']:
+                              page.screenshot(path=str(out / (label + '.png')), full_page=True, timeout=15000)
+
+                  try:
+                      page.goto(base + 'demo/work', wait_until='domcontentloaded')
+                      ready(page)
+                      job = page.locator('a.job-card').first
+                      expect(job).to_be_visible()
+                      job.click()
+                      ready(page)
+                      record('job-detail-click', page.url.startswith(base) and 'このページは見つかりません' not in page.inner_text('#root'), url=page.url)
+                      page.reload(wait_until='domcontentloaded')
+                      ready(page)
+                      record('job-detail-reload', page.url.startswith(base) and 'このページは見つかりません' not in page.inner_text('#root'), url=page.url)
+                  except Exception as error:
+                      record('job-detail-navigation', False, errors=[str(error)])
+
+                  try:
+                      page.goto(base, wait_until='domcontentloaded')
+                      ready(page)
+                      ratios = page.evaluate(r'''() => {
+                          function lum(s) { const a = (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4 }); return .2126 * a[0] + .7152 * a[1] + .0722 * a[2] }
+                          return [...document.querySelectorAll('.m-button,.m-footer .m-underlink')].map(e => { const s = getComputedStyle(e), a = lum(s.color), b = lum(s.backgroundColor); return {text: e.textContent, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05)} });
+                      }''')
+                      record('primary-and-footer-contrast', bool(ratios) and all(x['ratio'] is not None and x['ratio'] >= 4.5 for x in ratios), details=ratios)
+                      page.evaluate("() => caches.open('muumei-live-check-sentinel')")
+                      worker = page.evaluate('''async () => {
+                          await Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => setTimeout(() => reject(new Error('Service worker timeout')), 10000))]);
+                          return {scopes: (await navigator.serviceWorker.getRegistrations()).map(r => r.scope), preserved: (await caches.keys()).includes('muumei-live-check-sentinel')};
+                      }''')
+                      record('service-worker-isolation', bool(worker['scopes']) and all(s == base for s in worker['scopes']) and worker['preserved'], details=worker)
+                  except Exception as error:
+                      record('contrast-or-service-worker', False, errors=[str(error)])
+                  context.close()
+                  browser.close()
+          except Exception as error:
+              record('verification-harness', False, errors=[str(error)])
+
+          failed = [c for c in report['checks'] if not c['ok']]
+          summary = {'checks': len(report['checks']), 'failed': len(failed), 'authenticated_e2e': False, 'owner_deployed': False}
+          print(json.dumps(summary, ensure_ascii=False), flush=True)
+          raise SystemExit(1 if failed else 0)
+          PY
+      - name: Save live verification report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muumei-live-verification
+          path: live-verification/
+          if-no-files-found: error
+          retention-days: 14
