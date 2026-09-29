@@ -27,7 +27,7 @@ jobs:
         run: echo EXPECTED_PUBLIC_HEAD=$(git rev-parse HEAD) >> "$GITHUB_ENV"
       - name: Verify checksum and safety of the compiled-only public artifact
         env:
-          PUBLIC_DISTRIBUTION_URL: 'https://sdmntprjapaneast.oaiusercontent.com/files/00000000-b6e0-8209-b570-48493bad8362/raw?se=2026-09-29T15%3A08%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=aba333dd-1b8f-53ad-8285-e64472486b28&skoid=03727f49-62d3-42ac-8350-1c0e6559d238&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-29T03%3A47%3A05Z&ske=2026-09-30T03%3A47%3A05Z&sks=b&skv=2026-02-06&sig=D8J80k2ggO5Ms28XvYfN4ODWo3nVF92kp1hHl7dG1DQ%3D'
+          PUBLIC_DISTRIBUTION_URL: 'https://productionresultssa18.blob.core.windows.net/actions-results/c1339297-d935-4921-abc9-98d82a67b93e/workflow-job-run-7485370a-38de-509e-b979-280fe4827d6e/artifacts/aec3039d0048eebfb8222101656f377f75e075a9c273dd5d32c078b6efb7069f.zip?rscd=attachment%3B+filename%3D%22compact-ui-public-distribution.zip%22&rsct=application%2Fzip&se=2026-09-29T15%3A18%3A28Z&sig=TSUCQRnQZNvss9c36JS6ToomCCFqR7PWj9Lmo8TBp%2FI%3D&ske=2026-09-29T16%3A54%3A21Z&skoid=ca7593d4-ee42-46cd-af88-8b886a2f84eb&sks=b&skt=2026-09-29T12%3A54%3A21Z&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skv=2025-11-05&sp=r&spr=https&sr=b&st=2026-09-29T15%3A08%3A23Z&sv=2025-11-05'
         run: python .github/scripts/promote-compact.py
       - name: Store verified distribution without overwriting concurrent changes
         env:
