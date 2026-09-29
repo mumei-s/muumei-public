@@ -2,23 +2,35 @@
 
 正本ソースは別のPrivateリポジトリで管理します。このmainにはアプリの元コード、環境ファイル、DB定義、サーバー秘密鍵を置きません。
 
-## 2026-09-29 / 配信ファイル準備完了
+## 2026-09-29 / 本体のGitHub Pages公開と実URL検証完了
 
-- 写真背景・黄色/白の高コントラストボタンを含む一般側の配信ファイルを `docs/` に保存済みです。
-- 一般/OWNERの型検査とビルド成功。主要画面の360/390/1280px表示、リンク、画像、ボタンコントラスト、求人詳細クリック/再読込、Service Workerの適用範囲と他アプリのcache保持を含む **50項目成功**。
-- 検証記録: [Actions run 36499681845](https://github.com/mumei-s/muumei-public/actions/runs/36499681845)。build成功。deployはPages未設定により停止。
-- OWNERは独立パッケージとして生成しており、一般側の `docs/` にOWNERログインを公開していません。
-- これは画面配信の検証です。認証済み実アカウント、LINE実送受信等の本番E2E成功ではありません。`ready=false` を維持しています。
+本体の公開URL: https://mumei-s.github.io/muumei-public/
 
-## 公開前に必要な管理者設定
+操作見本: https://mumei-s.github.io/muumei-public/demo/home/
 
-[このリポジトリのPages設定](https://github.com/mumei-s/muumei-public/settings/pages) で、**Build and deployment → Source → GitHub Actions** に設定してください。
+ユーザーがPagesのSourceをGitHub Actionsへ変更した後、失敗していたdeployだけを再実行しました。
 
-設定後、上記実行の失敗したdeploy jobだけを再実行できます。配信artifactが期限切れの場合は、Recover and deploy MUUMEI Pages workflowを新しく実行してください。
+- [公開処理 run 36499681845 / attempt 2](https://github.com/mumei-s/muumei-public/actions/runs/36499681845): **success**。公開成功時刻は2026-09-29 00:05:23 UTC（09:05:23 JST）。
+- [実URLのブラウザー検証 run 36501624669](https://github.com/mumei-s/muumei-public/actions/runs/36501624669): **29件成功・失敗0件**。
+- 実URLのHTTP 200と配信index.htmlの完全一致を確認。SHA256: `ea4d309805867d7ccc84ea4ab5a0e47f996779bd3821212d2994122ad8b8ef73`。
+- Chromiumで8画面×360/390/1280pxの24ケースを検証。写真背景、画面内画像、横はみ出し、リンクのベースパス、JS例外を確認。
+- 求人詳細クリック・再読み込み、主要ボタンとフッターリンクの文字コントラスト、Service Workerの適用範囲と他キャッシュの保持も成功。
+- 実URLのスクリーンショットと結果JSONをActions artifact `muumei-live-verification` に保存（14日保持）。
+- 今後の公開後も独立した `Verify live MUUMEI Pages` workflowで同じ読み取り検証を実行します。アカウント作成、メッセージ送信、実データ変更はしません。
 
-予定URL: `https://mumei-s.github.io/muumei-public/`
+**これは一般側の公開ページ・操作見本の配信確認です。認証済み実アカウントでの運用E2E、LINE実送受信、OWNERの新しい公開先への配備が完了したという意味ではありません。ready=falseを維持しています。**
 
-Pagesの実配備と実URL確認が済むまでは、公開済み/サービス稼働済みとは扱いません。
+## OWNERと公開前検証
+
+- 一般/OWNERの型検査とビルド成功。公開前の主要画面・画像・リンク・求人詳細・コントラスト・PWA範囲を含む50項目も成功済みです（上記公開処理のbuild job）。
+- OWNERは独立パッケージ `muumei-owner-separate-origin-package` として生成しています。一般側の `docs/` にOWNERログインを配置していません。
+- OWNERの別公開先と認証付きの実機確認は引き続き残件です。既存OWNERの公開範囲・権限を勝手に変更しません。
+
+## 再公開について
+
+PagesのSource設定は完了済みです。ユーザーへ同じ設定変更を再依頼しないでください。
+
+公開後の実URL検証は `.github/workflows/verify-live-pages.yml`。配信の復旧workflowは `.github/workflows/recover-pages.yml` です。復旧workflowは保存済みrevisionを使うため、新しい正本ソースを反映する仕組みと混同しないでください。
 
 ## 正本との関係
 
