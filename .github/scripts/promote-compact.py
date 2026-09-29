@@ -21,7 +21,7 @@ with zipfile.ZipFile(io.BytesIO(packed)) as archive:
   assert name and not p.is_absolute() and '..' not in p.parts and '\\' not in name
   assert not any(part in {'.git','node_modules'} or part.startswith('.env') for part in p.parts)
   assert 'owner' not in p.parts or p.parts[:2]==('review','owner'),'A live OWNER must not be published here'
-  assert p.suffix in allowed or name=='.nojekyll',name
+  assert p.suffix in allowed or name in {'.nojekyll','review/member/.nojekyll','review/owner/.nojekyll'} and item.file_size==0,name
   assert not stat.S_ISLNK(item.external_attr>>16)
   assert item.file_size<=20*1024*1024 and name not in files
   data=archive.read(item)
@@ -39,7 +39,6 @@ for part in ['member','owner']:
  for name,data in files.items():
   if name.startswith('review/'+part+'/') and name.endswith('.html'):
    if name=='review/'+part+'/offline.html':
-    # The pre-existing static offline page contains no app scripts, forms or frames.
     assert b'<script' not in data.lower() and b'<form' not in data.lower() and b'<iframe' not in data.lower(),name
    else:assert b"connect-src 'self'" in data and b'noindex' in data,name
 assert {'review/index.html','review/review.js','jobs/index.html','direct/index.html','demo/home/index.html'}<=files.keys()
