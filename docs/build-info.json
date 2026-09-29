@@ -1,8 +1,8 @@
 {
   "surface": "app",
   "base": "/muumei-public/",
-  "sourceRevision": "4ec57cbb15712cd823470212f5074b889ff0f1ad",
-  "packagerRevision": "86648bda3aa9372f502b8cc0638e43f6bd33be23",
+  "sourceRevision": "60114cf5a34c5af29d05aa4f0b220e497de6159c",
+  "packagerRevision": "60114cf5a34c5af29d05aa4f0b220e497de6159c",
   "ready": false,
-  "generatedAt": "2026-09-28T23:46:24.490Z"
+  "generatedAt": "2026-09-29T00:53:31.048Z"
 }
