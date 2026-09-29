@@ -15,4 +15,5 @@ new MutationObserver(()=>beginViewLoad()).observe(frame,{attributes:true,attribu
 frame.addEventListener('load',()=>{frameLoaded=true;inspectView()});
 frame.addEventListener('error',()=>{clearInterval(loadTimer);loadStatus.textContent='画面を読み込めませんでした。';retryView.hidden=false});
 retryView.onclick=()=>{beginViewLoad();try{frame.contentWindow.location.reload()}catch{frame.src=last[role]}};
-beginViewLoad(Boolean(frame.contentDocument?.querySelector('#main')));
+// The iframe load event may precede this parent script; React can mount #main later.
+beginViewLoad(frame.contentDocument?.readyState==='complete');
