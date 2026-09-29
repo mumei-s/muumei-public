@@ -1,0 +1,178 @@
+name: Publish community-first MUUMEI release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-community-20260929.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-recovery
+  cancel-in-progress: false
+env:
+  SOURCE_REVISION: 60114cf5a34c5af29d05aa4f0b220e497de6159c
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Receive only the already verified public application archive
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, stat, urllib.request, zipfile
+          revision=os.environ['SOURCE_REVISION']
+          existing=pathlib.Path('docs/build-info.json')
+          if existing.exists() and json.loads(existing.read_text()).get('sourceRevision')==revision:
+              print('The verified application distribution is already present.'); raise SystemExit(0)
+          # This expiring read-only URL grants access to this public-app ZIP only, not the source repository.
+          url='https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-46cc-8206-8c46-8faeff845782/raw?se=2026-09-29T02%3A18%3A39Z&sp=r&sv=2026-02-06&sr=b&scid=547a050b-3c6e-56ab-9f6f-4bb8a383eaa9&skoid=03727f49-62d3-42ac-8350-1c0e6559d238&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-29T00%3A16%3A17Z&ske=2026-09-30T00%3A16%3A17Z&sks=b&skv=2026-02-06&sig=MizacNBNw9GbNa3NyQlcuTNmPXEMAXc%2BeRdPi6eYewE%3D'
+          print('::add-mask::'+url,flush=True)
+          try:
+              with urllib.request.urlopen(url,timeout=60) as response: data=response.read(2*1024*1024)
+          except Exception:
+              raise SystemExit('The public-app archive URL expired or could not be reached; no distribution changed.')
+          assert hashlib.sha256(data).hexdigest()=='08dd55e05f532ad63fbd492dca707e9796705e7993c701bfc98515ddd7f8d0d8', 'Archive checksum mismatch'
+          allowed={'.html','.js','.css','.json','.webmanifest','.svg','.png','.webp','.jpg','.jpeg','.ico','.txt','.woff','.woff2'}
+          with zipfile.ZipFile(io.BytesIO(data)) as archive:
+              entries=archive.infolist()
+              assert len(entries)<3000 and sum(x.file_size for x in entries)<100*1024*1024
+              info=json.loads(archive.read('build-info.json'))
+              assert info['surface']=='app' and info['sourceRevision']==revision and info['base']=='/muumei-public/' and info['ready'] is False
+              names=set(archive.namelist())
+              assert {'jobs/index.html','direct/index.html','demo/work/index.html','demo/home/index.html'}<=names
+              assert len(names)==len(entries)
+              for entry in entries:
+                  p=pathlib.PurePosixPath(entry.filename)
+                  assert not p.is_absolute() and '..' not in p.parts and '\\' not in entry.filename and p.parts
+                  assert not stat.S_ISLNK(entry.external_attr>>16)
+                  assert not any(part in {'owner','.git','node_modules'} or part.startswith('.env') for part in p.parts)
+                  assert p.suffix in allowed or str(p)=='.nojekyll'
+              for entry in entries:
+                  target=pathlib.Path('docs')/entry.filename
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  target.write_bytes(archive.read(entry))
+          print('Validated app-only archive from canonical revision '+revision)
+          PY
+      - name: Preserve the verified distribution on public main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'main changed; refusing to overwrite'; exit 1; }
+          if find docs -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.map' -o -name '.env*' -o -name '*.sql' \) | grep -q .; then exit 1; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish verified community-first app; shared job page contains job samples'
+            gh auth setup-git
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual public URLs without changing live user data
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, time, urllib.request
+          from playwright.sync_api import sync_playwright, expect
+          base='https://mumei-s.github.io/muumei-public/'
+          revision=os.environ['SOURCE_REVISION']; out=pathlib.Path('verification'); out.mkdir()
+          for attempt in range(30):
+              try:
+                  info=json.load(urllib.request.urlopen(base+'build-info.json?v='+revision,timeout=20))
+                  if info.get('sourceRevision')==revision: break
+              except Exception: pass
+              time.sleep(3)
+          else: raise SystemExit('The new published revision is not visible yet')
+          results=[]
+          def record(name,ok,**details):
+              results.append({'name':name,'ok':bool(ok),**details})
+              (out/'result.json').write_text(json.dumps({'source_revision':revision,'real_services_tested':False,'checks':results},ensure_ascii=False,indent=2))
+              print(json.dumps(results[-1],ensure_ascii=False),flush=True)
+          with sync_playwright() as p:
+              browser=p.chromium.launch()
+              for width in [320,390,1280]:
+                  context=browser.new_context(viewport={'width':width,'height':900},device_scale_factor=3 if width<500 else 1,reduced_motion='reduce')
+                  context.route('https://*.supabase.co/**',lambda route:route.abort())
+                  page=context.new_page(); errors=[]
+                  page.on('pageerror',lambda error:errors.append(str(error)))
+                  try:
+                      for route,marker in [('', 'community-landing'),('jobs?source=direct','shared-jobs'),('direct','shared-jobs'),('demo/home','community-home')]:
+                          response=page.goto(base+route+('&' if '?' in route else '?')+'v='+revision,wait_until='networkidle')
+                          expect(page.locator('[data-page="'+marker+'"]').first).to_be_visible(timeout=20000)
+                          overflow=page.evaluate('document.documentElement.scrollWidth-innerWidth')
+                          record(f'{width}:{route}:layout',response.status==200 and overflow<=2,overflow=overflow)
+                          if marker=='community-landing':
+                              text=page.inner_text('#main')
+                              record(f'{width}:top-community-only',not any(x in text for x in ['求人見本','報酬','求人ごと']) and page.locator('.job-card,.m-work-sample').count()==0)
+                              image=page.locator('.m-hero-photo img')
+                              image_info=image.evaluate('(e)=>({width:e.naturalWidth,height:e.naturalHeight,renderedWidth:e.getBoundingClientRect().width,renderedHeight:e.getBoundingClientRect().height})')
+                              record(f'{width}:full-resolution-photo',image_info['width']>=1536 and image_info['height']>=1024,**image_info)
+                              if width==390: page.screenshot(path=str(out/'community-top-390-dpr3.png'),full_page=False)
+                              page.locator('[data-entry="community-jobs"]').click()
+                              expect(page.locator('[data-page="shared-jobs"]')).to_be_visible()
+                              record(f'{width}:top-button-to-shared-jobs','/jobs' in page.url)
+                          elif marker=='shared-jobs':
+                              expect(page.locator('[data-action="job-sample"]')).to_be_visible()
+                              record(f'{width}:{route}:sample-without-community',True)
+                              if width==390 and route.startswith('jobs'): page.screenshot(path=str(out/'shared-jobs-390-dpr3.png'),full_page=True)
+                          else:
+                              record(f'{width}:home-no-job-feed',page.locator('.job-card').count()==0 and '届いている仕事' not in page.inner_text('#main'))
+                              page.locator('[data-entry="community-jobs"]').click()
+                              expect(page.locator('[data-page="shared-jobs"]')).to_be_visible()
+                              record(f'{width}:community-home-to-shared-jobs',True)
+                      page.goto(base+'jobs?source=direct&v='+revision,wait_until='networkidle')
+                      page.locator('[data-action="job-sample"]').click()
+                      expect(page.locator('a.job-card').first).to_be_visible(timeout=20000)
+                      expect(page.locator('.demo-banner')).to_contain_text('求人見本')
+                      record(f'{width}:direct-sample-open','/demo/work' in page.url)
+                      page.get_by_role('link',name='求人ページに戻る').click()
+                      expect(page.locator('[data-page="shared-jobs"]')).to_be_visible()
+                      page.reload(wait_until='networkidle')
+                      expect(page.locator('[data-page="shared-jobs"]')).to_be_visible()
+                      record(f'{width}:sample-return-and-reload',True)
+                  except Exception as error:
+                      record(f'{width}:flow',False,error=str(error),url=page.url)
+                      page.screenshot(path=str(out/f'failure-{width}.png'),full_page=True)
+                  record(f'{width}:no-js-errors',not errors,errors=errors)
+                  context.close()
+              browser.close()
+          assert results and all(x['ok'] for x in results)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: muumei-community-live-verification
+          path: verification/
+          if-no-files-found: ignore
