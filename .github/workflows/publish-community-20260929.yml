@@ -21,42 +21,59 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Receive only the already verified public application archive
+      - name: Reconstruct and validate the already verified public app only
         run: |
           python - <<'PY'
-          import hashlib, io, json, os, pathlib, stat, urllib.request, zipfile
-          revision=os.environ['SOURCE_REVISION']
-          existing=pathlib.Path('docs/build-info.json')
-          if existing.exists() and json.loads(existing.read_text()).get('sourceRevision')==revision:
-              print('The verified application distribution is already present.'); raise SystemExit(0)
-          # This expiring read-only URL grants access to this public-app ZIP only, not the source repository.
-          url='https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-46cc-8206-8c46-8faeff845782/raw?se=2026-09-29T02%3A18%3A39Z&sp=r&sv=2026-02-06&sr=b&scid=547a050b-3c6e-56ab-9f6f-4bb8a383eaa9&skoid=03727f49-62d3-42ac-8350-1c0e6559d238&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-29T00%3A16%3A17Z&ske=2026-09-30T00%3A16%3A17Z&sks=b&skv=2026-02-06&sig=MizacNBNw9GbNa3NyQlcuTNmPXEMAXc%2BeRdPi6eYewE%3D'
-          print('::add-mask::'+url,flush=True)
-          try:
-              with urllib.request.urlopen(url,timeout=60) as response: data=response.read(2*1024*1024)
-          except Exception:
-              raise SystemExit('The public-app archive URL expired or could not be reached; no distribution changed.')
-          assert hashlib.sha256(data).hexdigest()=='08dd55e05f532ad63fbd492dca707e9796705e7993c701bfc98515ddd7f8d0d8', 'Archive checksum mismatch'
+          import base64, hashlib, json, lzma, os, pathlib
+          revision=os.environ['SOURCE_REVISION']; root=pathlib.Path('docs')
+          packed=base64.b64decode(''.join(pathlib.Path(f'.github/releases/community-60114cf.part{i}').read_text().strip() for i in range(1,5)),validate=True)
+          assert hashlib.sha256(packed).hexdigest()=='1163aef1ce94c1b3e0ee9cdb9976534b1d2458659b58100fd59261d473ddc93e'
+          data=lzma.decompress(packed); n=int.from_bytes(data[:4],'big'); h=json.loads(data[4:4+n]); offset=4+n
+          assert h['format']=='muumei-verified-dist-delta-v1' and h['sourceRevision']==revision
+          assert h['archive_sha256']=='08dd55e05f532ad63fbd492dca707e9796705e7993c701bfc98515ddd7f8d0d8'
           allowed={'.html','.js','.css','.json','.webmanifest','.svg','.png','.webp','.jpg','.jpeg','.ico','.txt','.woff','.woff2'}
-          with zipfile.ZipFile(io.BytesIO(data)) as archive:
-              entries=archive.infolist()
-              assert len(entries)<3000 and sum(x.file_size for x in entries)<100*1024*1024
-              info=json.loads(archive.read('build-info.json'))
-              assert info['surface']=='app' and info['sourceRevision']==revision and info['base']=='/muumei-public/' and info['ready'] is False
-              names=set(archive.namelist())
-              assert {'jobs/index.html','direct/index.html','demo/work/index.html','demo/home/index.html'}<=names
-              assert len(names)==len(entries)
-              for entry in entries:
-                  p=pathlib.PurePosixPath(entry.filename)
-                  assert not p.is_absolute() and '..' not in p.parts and '\\' not in entry.filename and p.parts
-                  assert not stat.S_ISLNK(entry.external_attr>>16)
-                  assert not any(part in {'owner','.git','node_modules'} or part.startswith('.env') for part in p.parts)
-                  assert p.suffix in allowed or str(p)=='.nojekyll'
-              for entry in entries:
-                  target=pathlib.Path('docs')/entry.filename
-                  target.parent.mkdir(parents=True,exist_ok=True)
-                  target.write_bytes(archive.read(entry))
-          print('Validated app-only archive from canonical revision '+revision)
+          def safe(name):
+              p=pathlib.PurePosixPath(name)
+              assert name and not p.is_absolute() and '..' not in p.parts and '\\' not in name
+              assert not any(x in {'owner','.git','node_modules'} or x.startswith('.env') for x in p.parts)
+              assert p.suffix in allowed or str(p)=='.nojekyll'
+              return p
+          if all((root/safe(f['path'])).is_file() and hashlib.sha256((root/safe(f['path'])).read_bytes()).hexdigest()==f['sha256'] for f in h['files']):
+              print('All verified distribution files already match.'); raise SystemExit(0)
+          seen=set(); reconstructed={}
+          for f in h['files']:
+              p=safe(f['path']); assert str(p) not in seen; seen.add(str(p))
+              a=(root/safe(f['base'])).read_bytes() if f['base'] else b''
+              assert hashlib.sha256(a).hexdigest()==f['base_sha256'],f['base']
+              program=data[offset:offset+f['program_length']]; offset+=f['program_length']; i=0; cursor=0; b=bytearray()
+              def varint():
+                  global i
+                  value=0; shift=0
+                  while True:
+                      assert i<len(program) and shift<64
+                      c=program[i]; i+=1; value|=(c&127)<<shift
+                      if c<128: return value
+                      shift+=7
+              while i<len(program):
+                  tag=varint(); size=tag//2
+                  if tag%2:
+                      zz=varint(); pos=cursor+(zz//2 if zz%2==0 else -(zz//2)-1)
+                      assert 0<=pos<=len(a) and pos+size<=len(a)
+                      b.extend(a[pos:pos+size]); cursor=pos+size
+                  else:
+                      assert i+size<=len(program)
+                      b.extend(program[i:i+size]); i+=size
+                  assert len(b)<=f['size']
+              assert len(b)==f['size'] and hashlib.sha256(b).hexdigest()==f['sha256'],f['path']
+              reconstructed[str(p)]=bytes(b)
+          assert offset==len(data) and len(reconstructed)==70
+          info=json.loads(reconstructed['build-info.json'])
+          assert info['surface']=='app' and info['sourceRevision']==revision and info['base']=='/muumei-public/' and info['ready'] is False
+          assert {'jobs/index.html','direct/index.html','demo/work/index.html','demo/home/index.html'}<=seen
+          # Preserve every old base until all new files have passed their canonical checksums.
+          for name,b in reconstructed.items():
+              target=root/name; target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(b)
+          print('All 70 files match the verified canonical build '+revision)
           PY
       - name: Preserve the verified distribution on public main
         env:
