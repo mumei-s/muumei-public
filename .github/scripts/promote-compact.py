@@ -1,15 +1,15 @@
 """Accept only a checksum-pinned public distribution, never private source or a live OWNER."""
-import base64, hashlib, io, json, os, pathlib, re, stat, urllib.request, zipfile
+import hashlib, io, json, os, pathlib, re, stat, urllib.request, urllib.parse, zipfile
 revision=os.environ['SOURCE_REVISION'];expected=os.environ['DISTRIBUTION_SHA256'];root=pathlib.Path('docs')
 assert re.fullmatch('[0-9a-f]{40}',revision) and re.fullmatch('[0-9a-f]{64}',expected)
-# Existing verified files make deployment replayable after the temporary transfer URL expires.
 manifest=pathlib.Path('.github/releases/compact-manifest.json')
 if manifest.exists():
  saved=json.loads(manifest.read_text())
  if saved.get('sourceRevision')==revision and saved.get('archiveSha256')==expected and all((root/f['path']).is_file() and hashlib.sha256((root/f['path']).read_bytes()).hexdigest()==f['sha256'] for f in saved['files']):
   print('The exact verified distribution is already stored on public main.');raise SystemExit(0)
-url=os.environ['PUBLIC_DISTRIBUTION_URL']
-assert url.startswith('https://') and '.oaiusercontent.com/' in url
+url=os.environ['PUBLIC_DISTRIBUTION_URL'];parsed=urllib.parse.urlsplit(url)
+assert parsed.scheme=='https' and (parsed.hostname or '').startswith('productionresults') and (parsed.hostname or '').endswith('.blob.core.windows.net') and parsed.path.startswith('/actions-results/')
+# Only a file-scoped link to the named, tested public compiled artifact; no GitHub credential.
 with urllib.request.urlopen(url,timeout=90) as response:packed=response.read(80*1024*1024+1)
 assert len(packed)<=80*1024*1024 and hashlib.sha256(packed).hexdigest()==expected,'Public distribution checksum mismatch'
 allowed={'.html','.js','.css','.json','.webmanifest','.svg','.png','.webp','.jpg','.jpeg','.ico','.txt','.woff','.woff2'}
@@ -38,11 +38,14 @@ for part in ['member','owner']:
  b=json.loads(files['review/'+part+'/build-info.json']);assert b['sourceRevision']==revision
  for name,data in files.items():
   if name.startswith('review/'+part+'/') and name.endswith('.html'):
-   assert b"connect-src 'self'" in data and b'noindex' in data,name
+   if name=='review/'+part+'/offline.html':
+    # The pre-existing static offline page contains no app scripts, forms or frames.
+    assert b'<script' not in data.lower() and b'<form' not in data.lower() and b'<iframe' not in data.lower(),name
+   else:assert b"connect-src 'self'" in data and b'noindex' in data,name
 assert {'review/index.html','review/review.js','jobs/index.html','direct/index.html','demo/home/index.html'}<=files.keys()
 assert b'load-status' in files['review/index.html']
-# All paths/bytes/configuration are verified before touching the deployed tree.
-# Keep old hashed assets for already-open tabs; replace current documents atomically per file.
+# All paths/bytes/configuration pass before changing the deployed tree.
+# Retain old hashed assets for already-open tabs; current documents use the new build.
 for name,data in files.items():
  target=root/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
 manifest.parent.mkdir(parents=True,exist_ok=True)
