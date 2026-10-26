@@ -17,3 +17,6 @@ frame.addEventListener('error',()=>{clearInterval(loadTimer);loadStatus.textCont
 retryView.onclick=()=>{beginViewLoad();try{frame.contentWindow.location.reload()}catch{frame.src=last[role]}};
 // The iframe load event may precede this parent script; React can mount #main later.
 beginViewLoad(frame.contentDocument?.readyState==='complete');
+
+
+document.querySelector('#simulate-error').onclick=()=>{const p=document.querySelector('#simulated-error');p.hidden=!p.hidden};

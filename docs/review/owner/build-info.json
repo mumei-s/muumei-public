@@ -1,8 +1,8 @@
 {
   "surface": "owner",
   "base": "/muumei-public/review/owner/",
-  "sourceRevision": "37956ab6a7c077f8bc21cc6a6704842423cf1780",
-  "packagerRevision": "4ae75867d0df6caa9b0e3e24f26b906bb835d4af",
+  "sourceRevision": "3c630a46b56f8bef9c8b2b62ab7f8820b075a801",
+  "packagerRevision": "local",
   "ready": false,
-  "generatedAt": "2026-09-29T21:27:22.629Z"
+  "generatedAt": "2026-10-26T09:50:55.900Z"
 }

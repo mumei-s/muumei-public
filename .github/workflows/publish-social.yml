@@ -1,0 +1,78 @@
+name: Publish and verify MUUMEI private social UI
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: muumei-pages-social-release
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify compiled-only application and synthetic review
+        run: |
+          python - <<'PY'
+          import pathlib,json,re
+          root=pathlib.Path('docs')
+          for f in root.rglob('*'):
+            if not f.is_file():continue
+            assert f.suffix not in ['.ts','.tsx','.sql','.map'] and not f.name.startswith('.env'),str(f)
+            if f.suffix in ['.js','.json','.html']:assert not re.search(r'sb_secret_[A-Za-z0-9_-]{20,}',f.read_text())
+          for part in ['member','owner']:
+            c=json.loads((root/'review'/part/'muumei-config.json').read_text());assert not c['url'] and not c['key'] and not c['ready']
+          assert not (root/'owner').exists()
+          c=json.loads((root/'muumei-config.json').read_text());assert not c['ready'] and not c['key'];assert c['configUrl']=='https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config'
+          for f in root.rglob('*'):
+            if f.is_file() and f.suffix in ['.js','.json','.html']:assert not re.search(r'sb_publishable_[A-Za-z0-9_-]{20,}',f.read_text()),str(f)
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser verifier
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium firefox webkit
+      - name: Confirm published revision is visible
+        run: |
+          python - <<'PY'
+          import json,urllib.request,time,pathlib
+          wanted=json.loads(pathlib.Path('docs/build-info.json').read_text())['sourceRevision']
+          for attempt in range(30):
+            try:
+              actual=json.load(urllib.request.urlopen('https://mumei-s.github.io/muumei-public/build-info.json?v='+wanted,timeout=20))
+              if actual['sourceRevision']==wanted:break
+            except Exception:pass
+            time.sleep(3)
+          else:raise SystemExit('Published revision is not visible')
+          PY
+      - name: Exercise actual Pages routes using synthetic data only
+        run: python .github/scripts/social-browser.py https://mumei-s.github.io/muumei-public/
+      - name: Verify live PWA registration, offline fallback and reconnect
+        run: python .github/scripts/pwa-browser.py https://mumei-s.github.io/muumei-public/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: social-live-verification
+          path: verification/
