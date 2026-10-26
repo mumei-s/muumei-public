@@ -2,13 +2,13 @@ name: Publish and verify MUUMEI private social UI
 on:
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py']
+    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py', '.github/scripts/live-auth-browser.py']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: muumei-pages-social-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -67,6 +67,8 @@ jobs:
             time.sleep(3)
           else:raise SystemExit('Published revision is not visible')
           PY
+      - name: Verify real anonymous configuration and login gate
+        run: python .github/scripts/live-auth-browser.py https://mumei-s.github.io/muumei-public/
       - name: Exercise actual Pages routes using synthetic data only
         run: python .github/scripts/social-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify live PWA registration, offline fallback and reconnect
