@@ -2,8 +2,10 @@
 
 Compiled GitHub Pages assets only. Canonical source: private `mumei-s/muumei`.
 
-Application source revision: `88d931827077090c022517b4834e6d712272f732`.
+Application source revision: `6c5105df35da7a37e10af872350f97840f2989ec`.
 
-Production registration remains closed pending verified mail delivery, Auth redirects and real invitation/approval testing. The isolated Review uses synthetic data and has no production credentials. OWNER runs on its separate private origin.
+Frontend hosting is GitHub Pages only. The isolated Review uses synthetic data and has no production credentials. No live OWNER is included. Production OWNER publication awaits a separate GitHub Pages origin.
 
-No TypeScript source, SQL, environment files, source maps, client API keys or live OWNER application are distributed here. Automated verification uses synthetic Review data only.
+Registration remains closed pending verified mail delivery, Auth redirects and real invitation/approval testing.
+
+No TypeScript source, SQL, environment files, source maps or API keys are distributed here. Automated verification uses synthetic Review data only.
