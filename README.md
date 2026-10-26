@@ -1,14 +1,9 @@
 # MUUMEI public distribution
 
-Compiled static distribution from private `mumei-s/muumei`.
+Compiled GitHub Pages assets only. Canonical source: private `mumei-s/muumei`.
 
-Canonical source revision: `3c630a46b56f8bef9c8b2b62ab7f8820b075a801`.
+Application source revision: `88d931827077090c022517b4834e6d712272f732`.
 
-- App: https://mumei-s.github.io/muumei-public/
-- Synthetic review: https://mumei-s.github.io/muumei-public/review/
-- Jobs: https://mumei-s.github.io/muumei-public/jobs
-- Acquaintance entry: https://mumei-s.github.io/muumei-public/direct
+Production registration remains closed pending verified mail delivery, Auth redirects and real invitation/approval testing. The isolated Review uses synthetic data and has no production credentials. OWNER runs on its separate private origin.
 
-Registration remains closed until dedicated MUUMEI backend migration, authentication settings, OWNER access and live invitation E2E are verified. The review uses fictional browser-local data only.
-
-This repository contains compiled client assets and deployment verification only. No original TS/TSX, SQL, environment files, API keys, source maps or live OWNER package are distributed. Previous releases remain available in Git history; obsolete recovery workflows and payloads have been removed from the current tree. The private canonical archive branch is untouched.
+No TypeScript source, SQL, environment files, source maps, client API keys or live OWNER application are distributed here. Automated verification uses synthetic Review data only.

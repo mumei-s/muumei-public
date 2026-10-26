@@ -67,6 +67,13 @@ try:
       page.goto(base+'review/member/demo/pass',wait_until='networkidle');page.get_by_role('button',name='ロゼ',exact=True).click();page.reload(wait_until='networkidle');expect(page.locator('.member-pass')).to_have_class('member-pass skin-rose');record(engine+':pass-skin-persists',True)
       page.goto(base+'jobs?source=direct',wait_until='networkidle');page.locator('[data-action="job-sample"]').click();expect(page.locator('a.job-card').first).to_be_visible();job=page.locator('a.job-card').first;title=job.locator('h3').inner_text();job.click();expect(page.locator('.detail-hero h1')).to_have_text(title);page.reload(wait_until='networkidle');expect(page.locator('.detail-hero h1')).to_have_text(title);record(engine+':shared-jobs-detail-refresh',True)
      except Exception as e:record(engine+':pass-jobs-flow',False,error=str(e))
+     try:
+      page.goto(base+'review/',wait_until='networkidle');view=page.frame_locator('#view');expect(view.locator('.home-feature-copy')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      view.get_by_role('link',name='Moments',exact=True).first.click();expect(view.get_by_role('textbox',name='今日のひとこと')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      page.get_by_role('button',name='確認用管理画面',exact=True).click();view.get_by_role('button',name='Toggle Sidebar',exact=True).click();expect(view.get_by_role('link',name='招待',exact=True)).to_be_visible();view.get_by_role('link',name='招待',exact=True).click();expect(view.get_by_role('textbox',name='招待先のメールアドレス',exact=False)).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      color=view.locator('.heading').first.evaluate('(e)=>({color:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor})');assert color['color']=='rgb(28, 33, 27)' and color['background']=='rgba(0, 0, 0, 0)',color
+      record(engine+':review-iframe-navigation-status-and-heading-contrast',True)
+     except Exception as e:record(engine+':review-iframe-navigation-status-and-heading-contrast',False,error=str(e));page.screenshot(path=str(out/(engine+'-review-shell-failure.png')),full_page=True)
     context.close()
    browser.close()
 finally:

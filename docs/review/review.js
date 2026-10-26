@@ -12,7 +12,7 @@ function inspectView(){
 }
 function beginViewLoad(loaded=false){clearInterval(loadTimer);loadStart=performance.now();frameLoaded=loaded;retryView.hidden=true;loadStatus.textContent='読み込み中…';loadTimer=setInterval(inspectView,500)}
 new MutationObserver(()=>beginViewLoad()).observe(frame,{attributes:true,attributeFilter:['src']});
-frame.addEventListener('load',()=>{frameLoaded=true;inspectView()});
+frame.addEventListener('load',()=>{beginViewLoad(true);inspectView()});
 frame.addEventListener('error',()=>{clearInterval(loadTimer);loadStatus.textContent='画面を読み込めませんでした。';retryView.hidden=false});
 retryView.onclick=()=>{beginViewLoad();try{frame.contentWindow.location.reload()}catch{frame.src=last[role]}};
 // The iframe load event may precede this parent script; React can mount #main later.
