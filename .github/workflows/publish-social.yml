@@ -59,6 +59,8 @@ jobs:
       image: mcr.microsoft.com/playwright/python:v1.55.0-noble
       options: --ipc=host
     env:
+      # GitHub mounts /github/home for pwuser; these image jobs run as root.
+      HOME: /root
       MUUMEI_BROWSER_ENGINES: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@v4
