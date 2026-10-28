@@ -1,5 +1,5 @@
 """Read-only configuration and public/member-boundary check; no real signup or submission."""
-import json,pathlib,sys
+import json,pathlib,sys,re
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright,expect
 base=sys.argv[1].rstrip('/')+'/'
@@ -48,7 +48,7 @@ with sync_playwright() as p:
   # Composition deliberately preserves the verified real member/work baseline.
   # The new account-free intake is still un-deployed; its form is sample-only.
   expect(page.locator('#main.shared-jobs-main')).to_be_visible(timeout=20000)
-  expect(page.get_by_role('heading',name='お手伝いの依頼はこちら。',exact=True)).to_be_visible()
+  expect(page.get_by_role('heading',name=re.compile(r'^お手伝いの\s*依頼はこちら。$'))).to_be_visible()
   expect(page.locator('.public-work-form')).to_have_count(0)
   work=page.get_by_role('link',name='募集を確認する',exact=False)
   assert urlsplit(work.get_attribute('href')).path.rstrip('/')==urlsplit(base).path.rstrip('/')+'/app/work'
