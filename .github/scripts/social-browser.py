@@ -92,8 +92,8 @@ try:
      except Exception as e:record(engine+':pass-jobs-flow',False,error=str(e))
      try:
       page.goto(base+'review/',wait_until='networkidle');view=page.frame_locator('#view');expect(view.locator('.home-feature-copy')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
-      view.get_by_role('link',name='Moments',exact=True).first.click();expect(view.get_by_role('textbox',name='今日のひとこと')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
-      page.get_by_role('button',name='確認用管理画面',exact=True).click();view.get_by_role('button',name='Toggle Sidebar',exact=True).click();expect(view.get_by_role('link',name='招待',exact=True)).to_be_visible();view.get_by_role('link',name='招待',exact=True).click();expect(view.get_by_role('textbox',name='招待先のメールアドレス',exact=False)).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      view.get_by_role('link',name='日々',exact=True).first.click();expect(view.get_by_role('textbox',name='今日のひとこと')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      page.get_by_role('button',name='確認用管理画面',exact=True).click();view.get_by_role('button',name='運営メニューを開閉',exact=True).click();expect(view.get_by_role('link',name='招待',exact=True)).to_be_visible();view.get_by_role('link',name='招待',exact=True).click();expect(view.get_by_role('textbox',name='招待先のメールアドレス',exact=False)).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
       assert_contrast(view.locator('.heading h1').first)
       record(engine+':review-iframe-navigation-status-and-heading-contrast',True)
      except Exception as e:record(engine+':review-iframe-navigation-status-and-heading-contrast',False,error=str(e));page.screenshot(path=str(out/(engine+'-review-shell-failure.png')),full_page=True)

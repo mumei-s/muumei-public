@@ -20,3 +20,6 @@ beginViewLoad(frame.contentDocument?.readyState==='complete');
 
 
 document.querySelector('#simulate-error').onclick=()=>{const p=document.querySelector('#simulated-error');p.hidden=!p.hidden};
+
+// Keep the sample itself in focus; review utilities stay behind one small menu.
+for(const id of ['feedback','simulate-error','reset'])document.querySelector('#'+id).addEventListener('click',()=>document.querySelector('#review-tools').removeAttribute('open'));

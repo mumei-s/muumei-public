@@ -2,7 +2,7 @@ name: Publish and verify MUUMEI private social UI
 on:
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py', '.github/scripts/live-auth-browser.py', '.github/scripts/entry-appearance-browser.py']
+    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py', '.github/scripts/live-auth-browser.py', '.github/scripts/entry-appearance-browser.py', '.github/scripts/showcase-browser.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -79,6 +79,14 @@ jobs:
             except Exception:pass
             time.sleep(3)
           else:raise SystemExit('Published revision is not visible')
+          expected=json.loads(pathlib.Path('docs/review/release.json').read_text())['sourceRevision']
+          for attempt in range(30):
+            try:
+              actual=json.load(urllib.request.urlopen('https://mumei-s.github.io/muumei-public/review/release.json?v='+expected,timeout=20))
+              if actual['sourceRevision']==expected:break
+            except Exception:pass
+            time.sleep(3)
+          else:raise SystemExit('Published showcase revision is not visible')
           PY
       - name: Verify real anonymous configuration and login gate
         if: matrix.engine == 'chromium'
@@ -87,6 +95,8 @@ jobs:
         run: python .github/scripts/social-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify light and dark entrances and chat withdrawal
         run: python .github/scripts/entry-appearance-browser.py https://mumei-s.github.io/muumei-public/
+      - name: Verify the new disconnected top and photo SNS showcase
+        run: python .github/scripts/showcase-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify live PWA registration, offline fallback and reconnect
         run: python .github/scripts/pwa-browser.py https://mumei-s.github.io/muumei-public/
       - uses: actions/upload-artifact@v4
