@@ -96,8 +96,10 @@ jobs:
       - name: Verify light and dark entrances and chat withdrawal
         run: python .github/scripts/entry-appearance-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify the new disconnected top and photo SNS showcase
+        if: ${{ !cancelled() }}
         run: python .github/scripts/showcase-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify live PWA registration, offline fallback and reconnect
+        if: ${{ !cancelled() }}
         run: python .github/scripts/pwa-browser.py https://mumei-s.github.io/muumei-public/
       - uses: actions/upload-artifact@v4
         if: always()

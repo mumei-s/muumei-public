@@ -298,23 +298,37 @@ def main():
                                 action = panel.locator('.entry-real-action')
                                 sample = page.locator('.entry-choice > .sample-entry-panel')
                                 expect(sample).to_contain_text('架空データ')
-                                assert action.get_attribute('href') != sample.locator('a').get_attribute('href')
+                                sample_link = sample.locator('a')
+                                assert action.get_attribute('href') != sample_link.get_attribute('href')
+                                expected_sample_path = (urlsplit(base).path + 'demo/work-public/' if key == 'work' else urlsplit(root_base).path + 'review/')
+                                actual_sample_path = sample_link.evaluate('(link)=>new URL(link.href).pathname')
+                                assert actual_sample_path == expected_sample_path, dict(entry=key, actual=actual_sample_path, expected=expected_sample_path)
                                 assert document_box(sample)['top'] >= document_box(panel)['bottom'] + 20
                                 result = utility(page) + contrast_pairs(page, ['.entry-choice-heading h1', '.entry-real-panel h2', '.entry-real-panel p', '.entry-real-action', '.sample-entry-panel p'])
                                 if engine == 'chromium' and width == 390 and key == 'private':
                                     page.screenshot(path=str(out / f'showcase-entry-private-390-{scheme}.png'), full_page=True)
-                                action.click()
+                                # Exercise the small link itself: a plausible-looking href is
+                                # insufficient when the static base wrapper can run twice.
+                                sample_link.click()
                                 if key == 'work':
                                     expect(page.locator('.public-work-form')).to_be_visible()
                                     expect(page.get_by_role('button', name='サンプルで送信を試す', exact=True)).to_be_visible()
-                                    visit('entry/work/')
-                                    page.locator('.sample-entry-panel a').click()
+                                else:
+                                    expect(page.get_by_role('button', name='メンバー画面', exact=True)).to_be_visible()
+                                    expect(page.get_by_role('button', name='確認用管理画面', exact=True)).to_be_visible()
+                                    expect(page.frame_locator('#view').locator('.home-feature-copy')).to_be_visible(timeout=20000)
+                                    expect(page.locator('#load-status')).to_contain_text('表示完了')
+                                assert urlsplit(page.url).path == expected_sample_path, dict(entry=key, actual=page.url, expected_path=expected_sample_path)
+                                # Revisit before testing the primary path as a separate action.
+                                visit('entry/' + key + '/')
+                                page.locator('.entry-real-panel .entry-real-action').click()
+                                if key == 'work':
                                     expect(page.locator('.public-work-form')).to_be_visible()
-                                    assert urlsplit(page.url).path.rstrip('/') == (urlsplit(base).path + 'demo/work-public').rstrip('/'), page.url
+                                    expect(page.get_by_role('button', name='サンプルで送信を試す', exact=True)).to_be_visible()
                                 else:
                                     expect(page.locator('.member-experience')).to_be_visible()
                                     expect(page.locator('.home-feature-copy')).to_be_visible()
-                                return {'contrast': result, 'synthetic_destination': True}
+                                return {'contrast': result, 'synthetic_destination': True, 'small_sample_path': expected_sample_path, 'small_sample_navigation_verified': True}
                             run_case('sample-entry-' + key, entry)
 
                         def feed():

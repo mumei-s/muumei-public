@@ -260,7 +260,7 @@ def main():
                     def owner():
                         visit('review/owner/demo/invites')
                         result = contrast_pairs(page, ['.heading h1', '.heading .eyebrow', '.owner-content .field input'])
-                        page.get_by_role('button', name='Toggle Sidebar', exact=True).click()
+                        page.get_by_role('button', name='運営メニューを開閉', exact=True).click()
                         nav = page.locator('[data-sidebar="sidebar"] [data-sidebar="menu-button"][data-active="true"]').first
                         expect(nav).to_be_visible()
                         result.append(dict(selector='owner-active-menu', **contrast(nav)))
