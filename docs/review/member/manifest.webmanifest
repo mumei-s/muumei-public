@@ -2,7 +2,7 @@
   "id": "/muumei-public/review/member/",
   "name": "MUUMEI",
   "short_name": "MUUMEI",
-  "description": "会った日の続きを楽しむ、招待制プライベートSNS。",
+  "description": "会った人との近況や次の楽しみを分かち合う、招待制プライベートSNS。",
   "lang": "ja",
   "start_url": "/muumei-public/review/member/app/home",
   "scope": "/muumei-public/review/member/",

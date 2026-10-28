@@ -61,7 +61,9 @@ with sync_playwright() as p:
    context.set_offline(False)
    page.get_by_role('button',name='もう一度試す',exact=True).click()
    expect(page.locator('#main')).to_be_visible()
-   expect(page.get_by_role('heading',level=1)).to_contain_text('招待された')
+   expect(page.locator('#sns-title')).to_contain_text('「またね」の続きが、')
+   expect(page.locator('.sns-hero-label')).to_have_text('招待制プライベートSNS')
+   expect(page.locator('.sns-entry-card')).to_have_count(3)
    record(engine+':reconnect-and-retry',True)
   except Exception as e:
    record(engine+':pwa-flow',False,error=str(e));page.screenshot(path=str(out/(engine+'-pwa-failure.png')),full_page=True)
