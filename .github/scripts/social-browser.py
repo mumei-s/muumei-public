@@ -26,6 +26,25 @@ def assert_contrast(locator):
  assert value['ratio']+.01>=value['required'],value
  return value
 
+def wait_for_page(page):
+ # Verify the rendered page rather than the absence of all network activity.
+ # The outer Review shell uses an iframe instead of its own main element.
+ if page.locator('#view').count():
+  expect(page.locator('#view')).to_be_visible(timeout=20000)
+ else:
+  expect(page.locator('#main')).to_be_visible(timeout=20000)
+ page.wait_for_function("""() => [...document.images].filter(image => {const box=image.getBoundingClientRect();return box.width>0&&box.height>0&&box.top<innerHeight&&box.bottom>0}).every(image => image.complete&&image.naturalWidth>0)""",timeout=15000)
+
+def visit(page,url):
+ response=page.goto(url,wait_until='domcontentloaded')
+ wait_for_page(page)
+ return response
+
+def reload_page(page):
+ response=page.reload(wait_until='domcontentloaded')
+ wait_for_page(page)
+ return response
+
 checks=[]
 def record(name,ok,**kw):
  checks.append(dict(name=name,ok=bool(ok),**kw));(out/'social-browser.json').write_text(json.dumps(dict(live=target.startswith('https://'),production_data_mutated=False,checks=checks,total=len(checks),failures=sum(not x['ok'] for x in checks)),ensure_ascii=False,indent=2));print(name,'PASS' if ok else 'FAIL',kw,flush=True)
@@ -40,7 +59,7 @@ try:
     for route in routes:
      name=f'{engine}:{width}:{route or "top"}'
      try:
-      response=page.goto(base+route,wait_until='networkidle');expect(page.locator('#main')).to_be_visible(timeout=20000)
+      response=visit(page,base+route);expect(page.locator('#main')).to_be_visible(timeout=20000)
       state=page.evaluate('''() => ({overflow:document.documentElement.scrollWidth-innerWidth,broken:[...document.images].filter(i=>i.getBoundingClientRect().top<innerHeight&&i.getBoundingClientRect().bottom>0&&(!i.complete||!i.naturalWidth)).map(i=>i.getAttribute('src')),text:document.querySelector('#main').innerText})''')
       assert response.status==200,f'HTTP {response.status}'
       assert state['overflow']<=2,f'overflow {state["overflow"]}'
@@ -70,28 +89,28 @@ try:
      errors.clear()
     if width==390:
      try:
-      page.goto(base+'review/member/demo/moments',wait_until='networkidle');page.get_by_role('textbox',name='今日のひとこと').fill('ブラウザ試験のひとこと');page.get_by_role('button',name='投稿する',exact=True).click();expect(page.get_by_text('ブラウザ試験のひとこと',exact=True)).to_be_visible();page.reload(wait_until='networkidle');expect(page.get_by_text('ブラウザ試験のひとこと',exact=True)).to_be_visible()
+      visit(page,base+'review/member/demo/moments');page.get_by_role('textbox',name='今日のひとこと').fill('ブラウザ試験のひとこと');page.get_by_role('button',name='投稿する',exact=True).click();expect(page.get_by_text('ブラウザ試験のひとこと',exact=True)).to_be_visible();reload_page(page);expect(page.get_by_text('ブラウザ試験のひとこと',exact=True)).to_be_visible()
       post=page.locator('article.moment').filter(has=page.get_by_text('ブラウザ試験のひとこと',exact=True));post.get_by_role('button',name='スキ',exact=True).click();expect(post.get_by_role('button',name='スキ',exact=True)).to_have_attribute('aria-pressed','true');post.get_by_role('button').filter(has=page.locator('svg.lucide-message-circle')).click()
       post.get_by_role('textbox',name='コメント',exact=True).fill('自分のコメント');post.get_by_role('button',name='コメントを送信').click();expect(post.get_by_text('自分のコメント',exact=True)).to_be_visible();post.get_by_role('button',name='自分のコメントを削除').click();page.get_by_role('button',name='削除する',exact=True).click();expect(post.get_by_text('自分のコメント',exact=True)).to_have_count(0)
       post.get_by_role('button',name='自分の投稿を削除').click();page.get_by_role('button',name='削除する',exact=True).click();expect(page.get_by_text('ブラウザ試験のひとこと',exact=True)).to_have_count(0)
       record(engine+':post-like-comment-delete-reload',True)
      except Exception as e:record(engine+':post-like-comment-delete-reload',False,error=str(e));page.screenshot(path=str(out/(engine+'-flow-failure.png')),full_page=True)
      try:
-      page.goto(base+'review/member/demo/next',wait_until='networkidle');item=page.locator('.next-item').first;item.get_by_role('button',name='気になる',exact=False).click();expect(item.get_by_role('button',name='気になる',exact=False)).to_have_attribute('aria-pressed','true');item.get_by_role('button',name='詳細',exact=False).click();item.get_by_role('button',name='参加したい',exact=True).click();expect(item.get_by_role('button',name='参加希望を取り消す')).to_be_visible();page.reload(wait_until='networkidle');expect(page.locator('.next-item').first.get_by_role('button',name='気になる',exact=False)).to_have_attribute('aria-pressed','true');record(engine+':next-reactions-persist',True)
+      visit(page,base+'review/member/demo/next');item=page.locator('.next-item').first;item.get_by_role('button',name='気になる',exact=False).click();expect(item.get_by_role('button',name='気になる',exact=False)).to_have_attribute('aria-pressed','true');item.get_by_role('button',name='詳細',exact=False).click();item.get_by_role('button',name='参加したい',exact=True).click();expect(item.get_by_role('button',name='参加希望を取り消す')).to_be_visible();reload_page(page);expect(page.locator('.next-item').first.get_by_role('button',name='気になる',exact=False)).to_have_attribute('aria-pressed','true');record(engine+':next-reactions-persist',True)
      except Exception as e:record(engine+':next-reactions-persist',False,error=str(e))
      try:
-      page.goto(base+'review/member/demo/messages',wait_until='networkidle');page.locator('.thread-list a.person-row').first.click();expect(page.get_by_role('textbox',name='メッセージ',exact=True)).to_be_visible();page.get_by_role('textbox',name='メッセージ',exact=True).fill('チャットの保存試験');page.get_by_role('button',name='送信',exact=True).click();expect(page.get_by_text('チャットの保存試験',exact=True)).to_be_visible();page.reload(wait_until='networkidle');expect(page.get_by_text('チャットの保存試験',exact=True)).to_be_visible()
+      visit(page,base+'review/member/demo/messages');page.locator('.thread-list a.person-row').first.click();expect(page.get_by_role('textbox',name='メッセージ',exact=True)).to_be_visible();page.get_by_role('textbox',name='メッセージ',exact=True).fill('チャットの保存試験');page.get_by_role('button',name='送信',exact=True).click();expect(page.get_by_text('チャットの保存試験',exact=True)).to_be_visible();reload_page(page);expect(page.get_by_text('チャットの保存試験',exact=True)).to_be_visible()
       bubble=page.locator('.bubble.mine').filter(has=page.get_by_text('チャットの保存試験',exact=True));tombstones=page.locator('.bubble.deleted').count()
       bubble.get_by_role('button',name='送信を取り消す',exact=True).click();dialog=page.get_by_role('dialog');expect(dialog).to_be_visible();dialog.get_by_role('button',name='やめる',exact=True).click();expect(dialog).to_be_hidden();expect(bubble.get_by_text('チャットの保存試験',exact=True)).to_be_visible()
       bubble.get_by_role('button',name='送信を取り消す',exact=True).click();dialog.get_by_role('button',name='取り消す',exact=True).click();expect(dialog).to_be_hidden();expect(page.get_by_text('チャットの保存試験',exact=True)).to_have_count(0);expect(page.locator('.bubble.deleted')).to_have_count(tombstones+1)
-      page.reload(wait_until='networkidle');expect(page.get_by_text('チャットの保存試験',exact=True)).to_have_count(0);expect(page.locator('.bubble.deleted')).to_have_count(tombstones+1);expect(page.locator('.bubble.deleted').last).to_contain_text('メッセージの送信が取り消されました');record(engine+':owner-chat-send-cancel-unsend-history-reload',True)
+      reload_page(page);expect(page.get_by_text('チャットの保存試験',exact=True)).to_have_count(0);expect(page.locator('.bubble.deleted')).to_have_count(tombstones+1);expect(page.locator('.bubble.deleted').last).to_contain_text('メッセージの送信が取り消されました');record(engine+':owner-chat-send-cancel-unsend-history-reload',True)
      except Exception as e:record(engine+':owner-chat-send-cancel-unsend-history-reload',False,error=str(e))
      try:
-      page.goto(base+'review/member/demo/pass',wait_until='networkidle');page.get_by_role('button',name='ロゼ',exact=True).click();page.reload(wait_until='networkidle');expect(page.locator('.member-pass')).to_have_class('member-pass skin-rose');record(engine+':pass-skin-persists',True)
-      page.goto(base+'jobs?source=direct',wait_until='networkidle');page.locator('[data-action="job-sample"]').click();expect(page.locator('a.job-card').first).to_be_visible();job=page.locator('a.job-card').first;title=job.locator('h3').inner_text();job.click();expect(page.locator('.detail-hero h1')).to_have_text(title);page.reload(wait_until='networkidle');expect(page.locator('.detail-hero h1')).to_have_text(title);record(engine+':shared-jobs-detail-refresh',True)
+      visit(page,base+'review/member/demo/pass');page.get_by_role('button',name='ロゼ',exact=True).click();reload_page(page);expect(page.locator('.member-pass')).to_have_class('member-pass skin-rose');record(engine+':pass-skin-persists',True)
+      visit(page,base+'jobs?source=direct');page.locator('[data-action="job-sample"]').click();expect(page.locator('a.job-card').first).to_be_visible();job=page.locator('a.job-card').first;title=job.locator('h3').inner_text();job.click();expect(page.locator('.detail-hero h1')).to_have_text(title);reload_page(page);expect(page.locator('.detail-hero h1')).to_have_text(title);record(engine+':shared-jobs-detail-refresh',True)
      except Exception as e:record(engine+':pass-jobs-flow',False,error=str(e))
      try:
-      page.goto(base+'review/',wait_until='networkidle');view=page.frame_locator('#view');expect(view.locator('.home-feature-copy')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
+      visit(page,base+'review/');view=page.frame_locator('#view');expect(view.locator('.home-feature-copy')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
       view.get_by_role('link',name='日々',exact=True).first.click();expect(view.get_by_role('textbox',name='今日のひとこと')).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
       page.get_by_role('button',name='確認用管理画面',exact=True).click();view.get_by_role('button',name='運営メニューを開閉',exact=True).click();expect(view.get_by_role('link',name='招待',exact=True)).to_be_visible();view.get_by_role('link',name='招待',exact=True).click();expect(view.get_by_role('textbox',name='招待先のメールアドレス',exact=False)).to_be_visible();expect(page.locator('#load-status')).to_contain_text('表示完了')
       assert_contrast(view.locator('.heading h1').first)

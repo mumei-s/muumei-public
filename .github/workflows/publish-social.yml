@@ -94,6 +94,7 @@ jobs:
       - name: Exercise actual Pages routes using synthetic data only
         run: python .github/scripts/social-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify light and dark entrances and chat withdrawal
+        if: ${{ !cancelled() }}
         run: python .github/scripts/entry-appearance-browser.py https://mumei-s.github.io/muumei-public/
       - name: Verify the new disconnected top and photo SNS showcase
         if: ${{ !cancelled() }}
