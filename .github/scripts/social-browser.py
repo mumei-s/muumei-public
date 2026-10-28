@@ -38,6 +38,10 @@ try:
       assert not state['broken'],f'broken images {state["broken"]}'
       assert not errors,f'JS errors {errors}'
       assert 'このページは見つかりません' not in state['text']
+      if route=='login':
+       expect(page.get_by_role('alert')).to_contain_text('通信状態を確認',timeout=15000)
+       expect(page.get_by_role('button',name='再読み込み',exact=True)).to_be_visible()
+       expect(page.get_by_role('button',name='確認メールを受け取る',exact=False)).to_be_disabled()
       if route=='review/member/demo/home':
        h=page.locator('.home-feature-copy h2');metrics=h.evaluate('(e)=>({height:e.getBoundingClientRect().height,line:parseFloat(getComputedStyle(e).lineHeight)})');assert metrics['height']<=metrics['line']*2+3,'Home copy wraps inside a phrase'
       if route=='':
@@ -79,3 +83,4 @@ try:
 finally:
  if server:server.shutdown()
 assert checks and all(x['ok'] for x in checks),f'{sum(not x["ok"] for x in checks)} browser checks failed'
+

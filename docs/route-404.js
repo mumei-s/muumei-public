@@ -11,4 +11,3 @@
   if (route.length > 8192 || route.includes('\\')) return;
   location.replace(base + '?__muumei_route=' + encodeURIComponent(route) + location.hash);
 })();
-
