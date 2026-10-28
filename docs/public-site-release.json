@@ -1,0 +1,25 @@
+{
+  "mode": "public-information",
+  "sourceRevision": "9efcc87e7f8ca54cd47f9442de2c307f0fb10434",
+  "base": "/muumei-public/",
+  "memberRuntime": false,
+  "ownerRuntime": false,
+  "sampleData": false,
+  "backendConnection": false,
+  "routes": [
+    "",
+    "entry",
+    "entry/private",
+    "entry/connection",
+    "entry/work",
+    "install",
+    "about",
+    "operator",
+    "security",
+    "rules",
+    "privacy",
+    "terms",
+    "contact",
+    "faq"
+  ]
+}

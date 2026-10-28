@@ -1,8 +1,8 @@
-name: Publish and verify MUUMEI private social UI
+name: Publish and verify separated MUUMEI pages
 on:
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/social-browser.py', '.github/scripts/pwa-browser.py', '.github/scripts/live-auth-browser.py', '.github/scripts/entry-appearance-browser.py', '.github/scripts/showcase-browser.py']
+    paths: ['docs/**', '.github/workflows/publish-social.yml', '.github/scripts/public-experience-browser.py', '.github/scripts/pwa-browser.py', '.github/scripts/live-auth-browser.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,21 +22,64 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Verify compiled-only application and synthetic review
+      - name: Verify compiled public pages and disconnected participant sample
         run: |
           python - <<'PY'
-          import pathlib,json,re
+          import base64,json,pathlib,re
           root=pathlib.Path('docs')
-          for f in root.rglob('*'):
-            if not f.is_file():continue
-            assert f.suffix not in ['.ts','.tsx','.sql','.map'] and not f.name.startswith('.env'),str(f)
-            if f.suffix in ['.js','.json','.html']:assert not re.search(r'sb_secret_[A-Za-z0-9_-]{20,}',f.read_text())
-          for part in ['member','owner']:
-            c=json.loads((root/'review'/part/'muumei-config.json').read_text());assert not c['url'] and not c['key'] and not c['ready']
-          assert not (root/'owner').exists()
-          c=json.loads((root/'muumei-config.json').read_text());assert not c['ready'] and not c['key'];assert c['configUrl']=='https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config'
-          for f in root.rglob('*'):
-            if f.is_file() and f.suffix in ['.js','.json','.html']:assert not re.search(r'sb_publishable_[A-Za-z0-9_-]{20,}',f.read_text()),str(f)
+          def load(path):return json.loads((root/path).read_text())
+          public=load('public-site-release.json')
+          sample=load('review/release.json')
+          receipt=load('release-receipt.json')
+          revision=public['sourceRevision']
+          assert re.fullmatch(r'[0-9a-f]{40}',revision),'Invalid source revision'
+          assert public['mode']=='public-information' and public['base']=='/muumei-public/'
+          assert all(public[key] is False for key in ['memberRuntime','ownerRuntime','sampleData','backendConnection'])
+          assert sample['sourceRevision']==receipt['sourceRevision']==revision,'Public/sample revision mismatch'
+          assert sample['mode']=='synthetic-only' and sample['surface']=='participant'
+          assert sample['ownerIncluded'] is False and sample['realOwner'] is False
+          assert receipt['mode']=='separated-public-and-participant-sample'
+          assert all(receipt[key] is False for key in ['ownerIncluded','realBackendChanged','registrationEnabled'])
+          member=load('review/member/build-info.json')
+          assert member['sourceRevision']==revision and member['surface']=='app' and member['ready'] is False
+          # Real member/Auth pages deliberately retain their verified baseline.
+          baseline=load('build-info.json')
+          assert baseline['sourceRevision']==receipt['legacySourceRevision']
+          assert baseline['surface']=='app' and baseline['ready'] is False
+          actual=load('muumei-config.json')
+          assert actual['ready'] is False and actual['key']==''
+          assert actual['configUrl']=='https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config'
+          disconnected=load('review/member/muumei-config.json')
+          assert disconnected['url']==disconnected['key']=='' and disconnected['ready'] is False
+          for config in [actual,disconnected]:
+            operator=config.get('operator',{})
+            assert operator.get('name','') in ['', 'MUUMEI', 'MUUMEI 運営']
+            assert operator.get('address','')==operator.get('contact','')==''
+          for route in public['routes']:
+            assert isinstance(route,str) and '..' not in route and not route.startswith('/')
+            page=root/route/'index.html'
+            assert page.is_file() and "connect-src 'self';" in page.read_text(),str(page)
+          for path in ['login/index.html','join/index.html','receive/index.html','invite/index.html','app/home/index.html','app/messages/index.html','review/member/demo/home/index.html']:
+            assert (root/path).is_file(),path
+          count=0
+          for file in root.rglob('*'):
+            name=file.relative_to(root)
+            assert not file.is_symlink(),'Symlink in public distribution'
+            assert not any(part in ['owner','.git','node_modules','__pycache__'] or part.startswith('.env') for part in name.parts),str(name)
+            if not file.is_file():continue
+            count+=1
+            assert file.suffix.lower() not in ['.ts','.tsx','.sql','.map','.mjs','.cjs','.py','.pyc','.yml','.yaml'],str(name)
+            if file.suffix.lower() not in ['.js','.css','.json','.html','.txt','.svg','.webmanifest']:continue
+            content=file.read_text()
+            assert not re.search(r'sb_(?:secret|publishable)_[A-Za-z0-9_-]{20,}|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----',content),str(name)
+            for token in re.findall(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',content):
+              try:role=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'===')).get('role')
+              except (ValueError,UnicodeError):continue
+              assert role!='service_role','Privileged token in public distribution'
+            if file.suffix=='.json':assert json.loads(content).get('surface')!='owner',str(name)
+            if file.suffix=='.js':
+              assert not any(marker in content for marker in ['owner-shell','owner-intake-tabs','確認用管理画面','受付・承認を開く']),str(name)
+          print(json.dumps(dict(sourceRevision=revision,files=count,ownerIncluded=False,registrationEnabled=False)))
           PY
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -53,13 +96,10 @@ jobs:
       fail-fast: false
       matrix:
         engine: [chromium, firefox, webkit]
-    # Browsers and their OS dependencies are baked into this matching image.
-    # Avoid repeating apt/browser downloads before every live verification.
     container:
       image: mcr.microsoft.com/playwright/python:v1.55.0-noble
       options: --ipc=host
     env:
-      # GitHub mounts /github/home for pwuser; these image jobs run as root.
       HOME: /root
       MUUMEI_BROWSER_ENGINES: ${{ matrix.engine }}
     steps:
@@ -67,43 +107,60 @@ jobs:
       - name: Install matching Python verifier
         timeout-minutes: 5
         run: python -m pip install --disable-pip-version-check --no-cache-dir --timeout 30 --retries 2 playwright==1.55.0
-      - name: Confirm published revision is visible
+      - name: Confirm public and participant revisions and preserved member baseline
+        timeout-minutes: 5
         run: |
           python - <<'PY'
-          import json,urllib.request,time,pathlib
-          wanted=json.loads(pathlib.Path('docs/build-info.json').read_text())['sourceRevision']
-          for attempt in range(30):
+          import json,pathlib,time,urllib.request
+          base='https://mumei-s.github.io/muumei-public/'
+          root=pathlib.Path('docs')
+          paths=['public-site-release.json','release-receipt.json','review/release.json','review/member/build-info.json','build-info.json']
+          wanted={path:json.loads((root/path).read_text()) for path in paths}
+          revision=wanted['public-site-release.json']['sourceRevision']
+          assert wanted['review/release.json']['sourceRevision']==wanted['release-receipt.json']['sourceRevision']==revision
+          for attempt in range(20):
             try:
-              actual=json.load(urllib.request.urlopen('https://mumei-s.github.io/muumei-public/build-info.json?v='+wanted,timeout=20))
-              if actual['sourceRevision']==wanted:break
+              actual={}
+              for path in paths:
+                request=urllib.request.Request(base+path+'?release='+revision,headers={'Cache-Control':'no-cache'})
+                with urllib.request.urlopen(request,timeout=15) as response:
+                  assert response.status==200,path
+                  actual[path]=json.load(response)
+              if actual==wanted:break
             except Exception:pass
             time.sleep(3)
-          else:raise SystemExit('Published revision is not visible')
-          expected=json.loads(pathlib.Path('docs/review/release.json').read_text())['sourceRevision']
-          for attempt in range(30):
-            try:
-              actual=json.load(urllib.request.urlopen('https://mumei-s.github.io/muumei-public/review/release.json?v='+expected,timeout=20))
-              if actual['sourceRevision']==expected:break
-            except Exception:pass
-            time.sleep(3)
-          else:raise SystemExit('Published showcase revision is not visible')
+          else:raise SystemExit('Published public/sample metadata or preserved member baseline does not match this deployment')
+          print('Published public/sample revision and preserved member baseline match:',revision)
           PY
-      - name: Verify real anonymous configuration and login gate
-        if: matrix.engine == 'chromium'
+      - name: Record live-browser storage headroom
+        run: |
+          python - <<'PY_STORAGE'
+          import json,os,shutil
+          for path in ['.', '/tmp']:
+              usage=shutil.disk_usage(path);stats=os.statvfs(path)
+              print(json.dumps(dict(path=path,total=usage.total,free=usage.free,available_inodes=stats.f_favail)))
+              if usage.free < 512*1024*1024:raise SystemExit('Insufficient browser-test storage headroom')
+          PY_STORAGE
+      - name: Verify public pages and isolated participant sample at nine widths
+        if: ${{ !cancelled() }}
+        run: python .github/scripts/public-experience-browser.py https://mumei-s.github.io/muumei-public/
+      - name: Verify real anonymous configuration and existing member login gate
+        if: ${{ !cancelled() && matrix.engine == 'chromium' }}
         run: python .github/scripts/live-auth-browser.py https://mumei-s.github.io/muumei-public/
-      - name: Exercise actual Pages routes using synthetic data only
-        run: python .github/scripts/social-browser.py https://mumei-s.github.io/muumei-public/
-      - name: Verify light and dark entrances and chat withdrawal
-        if: ${{ !cancelled() }}
-        run: python .github/scripts/entry-appearance-browser.py https://mumei-s.github.io/muumei-public/
-      - name: Verify the new disconnected top and photo SNS showcase
-        if: ${{ !cancelled() }}
-        run: python .github/scripts/showcase-browser.py https://mumei-s.github.io/muumei-public/
-      - name: Verify live PWA registration, offline fallback and reconnect
+      - name: Verify live install strip, manifest and supported offline recovery
         if: ${{ !cancelled() }}
         run: python .github/scripts/pwa-browser.py https://mumei-s.github.io/muumei-public/
+      - name: Record final live-browser storage
+        if: always()
+        run: |
+          python - <<'PY_STORAGE'
+          import json,os,shutil
+          for path in ['.', '/tmp']:
+              usage=shutil.disk_usage(path);stats=os.statvfs(path)
+              print(json.dumps(dict(path=path,total=usage.total,free=usage.free,available_inodes=stats.f_favail)))
+          PY_STORAGE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: social-live-verification-${{ matrix.engine }}
+          name: separated-public-live-verification-${{ matrix.engine }}
           path: verification/

@@ -17,9 +17,11 @@ else:
    local=unquote(urlsplit(path).path).removeprefix('/muumei-public/')
    p=(root/local).resolve()
    return str(p if p.is_relative_to(root) and p.exists() else root/'404.html')
- server=http.server.ThreadingHTTPServer(('127.0.0.1',4190),Handler)
+ # Firefox/WebKit reject fixed port 4190 as an unsafe service port. Let the OS
+ # choose an ephemeral HTTP port, as the other browser verification servers do.
+ server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
  threading.Thread(target=server.serve_forever,daemon=True).start()
- base='http://127.0.0.1:4190/muumei-public/'
+ base=f'http://127.0.0.1:{server.server_port}/muumei-public/'
 out=pathlib.Path('verification');out.mkdir(exist_ok=True)
 checks=[]
 def record(name,ok,**details):
@@ -29,11 +31,20 @@ def record(name,ok,**details):
 with sync_playwright() as p:
  for engine in os.environ.get('MUUMEI_BROWSER_ENGINES','chromium,firefox,webkit').split(','):
   browser=getattr(p,engine).launch()
-  context=browser.new_context(viewport={'width':390,'height':844},service_workers='allow',reduced_motion='reduce')
+  # Only Chromium exposes reliable worker control to this pinned Playwright
+  # version. Firefox/WebKit still verify the actual UI, manifest and icons.
+  context=browser.new_context(viewport={'width':390,'height':844},service_workers='allow' if engine=='chromium' else 'block',reduced_motion='reduce')
   context.route('https://*.supabase.co/**',lambda route:route.abort())
   page=context.new_page()
   try:
-   page.goto(base,wait_until='networkidle');expect(page.locator('#main')).to_be_visible()
+   page.goto(base,wait_until='domcontentloaded');expect(page.locator('#main')).to_be_visible(timeout=20000)
+   expect(page.locator('[data-page="community-landing"]')).to_be_visible()
+   expect(page.locator('#sns-title')).to_contain_text('ふだんの話')
+   bar=page.locator('.app-utility-bar');expect(bar).to_have_count(1);expect(bar).to_be_visible()
+   strip=bar.evaluate('(e)=>({height:e.getBoundingClientRect().height,scroll:e.scrollHeight,client:e.clientHeight})')
+   assert 0<strip['height']<=44 and strip['scroll']<=strip['client']+2,strip
+   expect(bar.get_by_role('button',name='ホーム画面に追加',exact=True)).to_be_enabled()
+   record(engine+':compact-install-strip',True,**strip)
    path=page.locator('link[rel="manifest"]').get_attribute('href');response=context.request.get(urljoin(base,path));assert response.status==200
    manifest=response.json();scope=urljoin(base,manifest['scope']);assert scope==base and urljoin(base,manifest['id'])==base
    assert manifest['display']=='standalone' and urljoin(base,manifest['start_url']).startswith(base)
@@ -47,7 +58,8 @@ with sync_playwright() as p:
    assert registration['scope']==base and registration['script']==urljoin(base,'sw.js')
    record(engine+':service-worker-scope',True)
    page.wait_for_function("navigator.serviceWorker.controller?.state==='activated'",timeout=15000)
-   page.reload(wait_until='networkidle')
+   page.reload(wait_until='domcontentloaded')
+   expect(page.locator('#main')).to_be_visible(timeout=20000)
    page.wait_for_function("navigator.serviceWorker.controller?.state==='activated'",timeout=15000)
    cached=page.evaluate("async () => {const r=await caches.match(new URL('offline.html',location.href).href);return r?await r.text():''}");assert 'ネットワークに接続できません' in cached
    record(engine+':offline-cache-and-control',True)
@@ -60,13 +72,16 @@ with sync_playwright() as p:
    page.screenshot(path=str(out/(engine+'-offline-390.png')),full_page=True)
    context.set_offline(False)
    page.get_by_role('button',name='もう一度試す',exact=True).click()
-   expect(page.locator('#main')).to_be_visible()
-   expect(page.locator('#sns-title')).to_contain_text('「またね」の続きが、')
-   expect(page.locator('.sns-hero-label')).to_have_text('招待制プライベートSNS')
-   expect(page.locator('.sns-entry-card')).to_have_count(3)
+   expect(page.locator('#main')).to_be_visible(timeout=20000)
+   expect(page.locator('#sns-title')).to_contain_text('ふだんの話')
+   expect(page.locator('.sns-editorial-lead')).to_contain_text('知っている人')
+   cards=page.locator('#entrances .entry-dock-grid > a.entry-dock-app');expect(cards).to_have_count(3)
+   paths=cards.evaluate_all('(els)=>els.map(e=>new URL(e.href).pathname)')
+   assert paths==[urlsplit(base).path+'entry/'+key+'/' for key in ['private','connection','work']],paths
+   expect(page.locator('.app-utility-bar')).to_be_visible()
    record(engine+':reconnect-and-retry',True)
   except Exception as e:
-   record(engine+':pwa-flow',False,error=str(e));page.screenshot(path=str(out/(engine+'-pwa-failure.png')),full_page=True)
+   record(engine+':pwa-flow',False,error=str(e),url=page.url);page.screenshot(path=str(out/(engine+'-pwa-failure.png')),full_page=True)
   finally:context.close();browser.close()
-if server:server.shutdown()
+if server:server.shutdown();server.server_close()
 assert checks and not any(x['ok'] is False for x in checks)

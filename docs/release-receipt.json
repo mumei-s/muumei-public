@@ -1,0 +1,10 @@
+{
+  "sourceRevision": "9efcc87e7f8ca54cd47f9442de2c307f0fb10434",
+  "mode": "separated-public-and-participant-sample",
+  "legacyBaseline": "b06791ab845d0cf00b30f3f9bc01b01fb19d49a2",
+  "legacySourceRevision": "6a45a75563f915ab062052f231127b43cb03e136",
+  "legacyPrivacyPatch": "v3",
+  "realBackendChanged": false,
+  "registrationEnabled": false,
+  "ownerIncluded": false
+}
