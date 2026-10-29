@@ -7,8 +7,8 @@
   "start_url": "/muumei-public/review/member/app/home",
   "scope": "/muumei-public/review/member/",
   "display": "standalone",
-  "background_color": "#101319",
-  "theme_color": "#101319",
+  "background_color": "#fcf8fb",
+  "theme_color": "#fcf8fb",
   "orientation": "portrait-primary",
   "icons": [
     {

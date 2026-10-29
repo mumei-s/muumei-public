@@ -1,4 +1,4 @@
-const BASE="/muumei-public/review/member/",PREFIX="muumei-pages-app-59e347e866-",VERSION=PREFIX+"dd95bcb8cd446e85";
+const BASE="/muumei-public/review/member/",PREFIX="muumei-pages-app-59e347e866-",VERSION=PREFIX+"6724ba432b02da58";
 const local=p=>BASE+p.replace(/^\//,'');const FALLBACK=local('offline.html'),NOTIFICATIONS=local("app/notifications");
 self.addEventListener('install',e=>e.waitUntil(caches.open(VERSION).then(c=>c.addAll([FALLBACK,local('icons/icon-192.png')]))));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

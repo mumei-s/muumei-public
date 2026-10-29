@@ -1,13 +1,27 @@
 # MUUMEI public distribution
 
-Compiled GitHub Pages assets only. Canonical source: private `mumei-s/muumei`.
+Public URL: https://mumei-s.github.io/muumei-public/
+Participant-only sample: https://mumei-s.github.io/muumei-public/review/
 
-Public information and participant-only sample revision: `9efcc87e7f8ca54cd47f9442de2c307f0fb10434`.
-Preserved real member/Auth runtime revision: `6a45a75563f915ab062052f231127b43cb03e136`.
-The release receipts identify both independently; the new public introduction does not enable new backend behavior.
+This repository holds compiled files only. The canonical source is the private
+`mumei-s/muumei` repository. Public information, actual member/Auth pages and the
+isolated participant sample are built from source
+`7cb5ac9ba27467b9b7bc0045bcab96bc2e963333`.
 
-Frontend hosting is GitHub Pages only. The participant sample uses synthetic data and has no production connection or credentials. No real or sample OWNER application is included. Production OWNER publication awaits a separate GitHub Pages origin.
+The public introduction has no member data or backend connection. The participant
+sample uses fictional device-local content and empty backend configuration.
+Actual member/Auth pages keep their existing auth storage and runtime public
+configuration endpoint. New registration remains closed (`ready=false`).
 
-Registration remains closed pending Auth/mail configuration, a separate OWNER destination and real invitation/approval/chat testing. Home-screen installation alone does not activate Push delivery.
+`/jobs` and `/direct` are static work guides with no script, form or submission.
+Actual-member work routes redirect to these guides before creating a form.
 
-No TypeScript source, SQL, environment files, source maps or API keys are distributed here. Browser verification exercises public information and disconnected participant samples; the anonymous connection check uses only the existing public configuration GET.
+The interface has pearl/rose and dark-plum themes, distinct round profile icons,
+visible member cards and short feature explanations. Post comment and board
+reply interfaces are removed; the separate production database policy migration
+is pending explicit rollout approval. Likes, standalone posts and OWNER chat
+remain available within their existing authorization gates.
+
+No OWNER distribution, source code, SQL, environment files, privileged keys or
+source maps are included. Auth, email, separate OWNER hosting and device Push
+setup/E2E remain separate release gates. No paid plan or service is added.

@@ -45,17 +45,27 @@ with sync_playwright() as p:
   assert urlsplit(page.locator('.entry-real-action').get_attribute('href')).path.rstrip('/')==urlsplit(base).path.rstrip('/')+'/jobs'
   assert urlsplit(page.locator('.sample-entry-panel a').get_attribute('href')).path==urlsplit(base).path+'review/member/demo/work-public/'
   page.locator('.entry-real-action').click()
-  # Composition deliberately preserves the verified real member/work baseline.
-  # The new account-free intake is still un-deployed; its form is sample-only.
+  # Work information stays static and never launches an intake form. The
+  # separate API deployment does not authorize opening that product surface.
   expect(page.locator('#main.shared-jobs-main')).to_be_visible(timeout=20000)
   expect(page.get_by_role('heading',name=re.compile(r'^お手伝いの\s*依頼はこちら。$'))).to_be_visible()
   expect(page.locator('.public-work-form')).to_have_count(0)
+  expect(page.locator('script')).to_have_count(0)
+  expect(page.locator('form')).to_have_count(0)
   work=page.get_by_role('link',name='募集を確認する',exact=False)
   assert urlsplit(work.get_attribute('href')).path.rstrip('/')==urlsplit(base).path.rstrip('/')+'/app/work'
   work.click()
   expect(page.get_by_role('heading',name='ログイン',exact=True)).to_be_visible(timeout=20000)
   expect(page.get_by_role('button',name='確認メールを受け取る',exact=False)).to_be_enabled(timeout=20000)
-  record('Work entrance preserves the existing work guide and authenticated member gate',True,public_intake_deployed=False)
+  record('Work entrance preserves the static work guide and authenticated member gate',True,public_intake_form_enabled=False)
+  # Restoring a work route from a member document must reload the static guide,
+  # rather than rendering the unreleased real intake component from that bundle.
+  for work_route in ['jobs','direct']:
+   page.goto(base+'app/home/?__muumei_route='+work_route,wait_until='domcontentloaded')
+   expect(page.locator('#main.shared-jobs-main')).to_be_visible(timeout=20000)
+   assert urlsplit(page.url).path.rstrip('/')==urlsplit(base).path.rstrip('/')+'/'+work_route
+   expect(page.locator('script,form,input,textarea')).to_have_count(0)
+   record('Restored '+work_route+' route cannot bypass the static work guide',True,public_intake_form_enabled=False)
  except Exception as e:
   record('Real anonymous connection',False,error=str(e));page.screenshot(path=str(out/'live-auth-failure-390.png'),full_page=True)
  finally:context.close();browser.close()

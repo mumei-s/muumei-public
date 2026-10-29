@@ -42,10 +42,24 @@ jobs:
           assert all(receipt[key] is False for key in ['ownerIncluded','realBackendChanged','registrationEnabled'])
           member=load('review/member/build-info.json')
           assert member['sourceRevision']==revision and member['surface']=='app' and member['ready'] is False
-          # Real member/Auth pages deliberately retain their verified baseline.
-          baseline=load('build-info.json')
-          assert baseline['sourceRevision']==receipt['legacySourceRevision']
-          assert baseline['surface']=='app' and baseline['ready'] is False
+          # Real member/Auth, public and sample pages share the reviewed source.
+          actual_build=load('build-info.json')
+          assert actual_build['sourceRevision']==receipt['memberSourceRevision']==revision
+          assert receipt['realMemberRuntime']=='current-compiled'
+          assert actual_build['surface']=='app' and actual_build['ready'] is False
+          assert actual_build['workIntakeFormEnabled'] is False
+          assert actual_build['workGuideOnlyRoutes']==['jobs','direct']
+          guide=receipt['workGuide']
+          assert guide['mode']=='static-information' and guide['sourceRevision']==revision
+          assert all(guide[key] is False for key in ['submissionEnabled','backendConnection','javascript'])
+          assert re.fullmatch(r'assets/work-guide-[a-f0-9]{12}\.css',guide['stylePath'])
+          import hashlib
+          for route in ['jobs','direct']:
+            html=(root/route/'index.html').read_text()
+            assert hashlib.sha256(html.encode()).hexdigest()==guide['htmlSha256']
+            assert not re.search(r'<(?:script|form|input|textarea)\b',html,re.I)
+            assert "script-src 'none'" in html and "connect-src 'none'" in html and "form-action 'none'" in html
+          assert hashlib.sha256((root/guide['stylePath']).read_bytes()).hexdigest()==guide['cssSha256']
           actual=load('muumei-config.json')
           assert actual['ready'] is False and actual['key']==''
           assert actual['configUrl']=='https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config'
@@ -69,6 +83,7 @@ jobs:
             if not file.is_file():continue
             count+=1
             assert file.suffix.lower() not in ['.ts','.tsx','.sql','.map','.mjs','.cjs','.py','.pyc','.yml','.yaml'],str(name)
+            assert 'legacy-private-v3-' not in str(name),'Obsolete member runtime in distribution'
             if file.suffix.lower() not in ['.js','.css','.json','.html','.txt','.svg','.webmanifest']:continue
             content=file.read_text()
             assert not re.search(r'sb_(?:secret|publishable)_[A-Za-z0-9_-]{20,}|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----',content),str(name)
@@ -107,7 +122,7 @@ jobs:
       - name: Install matching Python verifier
         timeout-minutes: 5
         run: python -m pip install --disable-pip-version-check --no-cache-dir --timeout 30 --retries 2 playwright==1.55.0
-      - name: Confirm public and participant revisions and preserved member baseline
+      - name: Confirm matching public, participant and real member revisions
         timeout-minutes: 5
         run: |
           python - <<'PY'
@@ -117,7 +132,7 @@ jobs:
           paths=['public-site-release.json','release-receipt.json','review/release.json','review/member/build-info.json','build-info.json']
           wanted={path:json.loads((root/path).read_text()) for path in paths}
           revision=wanted['public-site-release.json']['sourceRevision']
-          assert wanted['review/release.json']['sourceRevision']==wanted['release-receipt.json']['sourceRevision']==revision
+          assert wanted['review/release.json']['sourceRevision']==wanted['release-receipt.json']['sourceRevision']==wanted['build-info.json']['sourceRevision']==revision
           for attempt in range(20):
             try:
               actual={}
@@ -129,8 +144,8 @@ jobs:
               if actual==wanted:break
             except Exception:pass
             time.sleep(3)
-          else:raise SystemExit('Published public/sample metadata or preserved member baseline does not match this deployment')
-          print('Published public/sample revision and preserved member baseline match:',revision)
+          else:raise SystemExit('Published public/sample/member metadata does not match this deployment')
+          print('Published public/sample/member revisions match:',revision)
           PY
       - name: Record live-browser storage headroom
         run: |

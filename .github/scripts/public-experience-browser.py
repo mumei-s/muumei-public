@@ -339,6 +339,31 @@ def contrasts(page, selectors):
     return results
 
 
+def assert_round_profile_icon(page, icon):
+    """Profile identity stays distinct from rectangular content and member cards."""
+    expect(icon).to_be_visible()
+    value = icon.evaluate("""element => {
+ const style=getComputedStyle(element),box=element.getBoundingClientRect();
+ const radius=value=>value.endsWith('%')?Math.min(box.width,box.height)*parseFloat(value)/100:parseFloat(value);
+ return {width:box.width,height:box.height,radii:[style.borderTopLeftRadius,style.borderTopRightRadius,style.borderBottomLeftRadius,style.borderBottomRightRadius].map(radius)};
+}""")
+    assert abs(value['width'] - value['height']) <= 2, value
+    assert all(radius >= min(value['width'], value['height']) / 2 - 1 for radius in value['radii']), value
+    image = icon.locator('img')
+    if image.count():
+        page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
+    return value
+
+
+def assert_no_post_comments(page):
+    """A read-only notice may mention comments; no member reply controls exist."""
+    feed = page.locator('.feed')
+    expect(feed.locator('.comments,.comment,.comment-form')).to_have_count(0)
+    expect(feed.get_by_role('textbox', name=re.compile('コメント|返信'))).to_have_count(0)
+    expect(feed.get_by_role('button', name=re.compile('コメント|返信'))).to_have_count(0)
+    expect(feed.locator('article.moment').first.get_by_role('button', name='スキ', exact=True)).to_be_visible()
+
+
 def wait_ready(page):
     expect(page.locator('#main')).to_be_visible(timeout=20000)
     page.wait_for_function('''() => [...document.images].filter(image => {const r=image.getBoundingClientRect();return r.width>0&&r.height>0&&r.top<innerHeight&&r.bottom>0}).every(image => image.complete&&image.naturalWidth>0)''', timeout=15000)
@@ -501,7 +526,23 @@ def main():
                         expect(page.locator('.sns-editorial-hero')).to_be_visible()
                         expect(page.locator('#sns-title')).to_contain_text('会った人と、')
                         expect(page.locator('#sns-title')).to_contain_text('ふだんの話を。')
-                        expect(page.locator('.sns-editorial-hero img')).to_have_count(0)
+                        hero_scene = page.locator('.sns-editorial-hero-scene')
+                        expect(hero_scene).to_have_attribute('aria-hidden', 'true')
+                        hero_images = hero_scene.locator('img')
+                        expect(hero_images).to_have_count(2)
+                        for image in hero_images.all():
+                            page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
+                            expect(image).to_have_attribute('alt', '')
+                        assert len(set(hero_images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))'))) == 2
+                        hero_layout = page.locator('.sns-editorial-hero').evaluate("""hero => {
+ const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}};
+ const intersection=(a,b)=>({width:Math.min(a.right,b.right)-Math.max(a.left,b.left),height:Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)});
+ const photos=[...hero.querySelectorAll('.sns-editorial-hero-scene img')].map(box);
+ const copy=[hero.querySelector('h1'),hero.querySelector('.sns-editorial-lead')].map(box);
+ const caption=box(hero.querySelector('.sns-hero-scene-caption'));
+ return {copy_photo_overlap:copy.flatMap(text=>photos.map(photo=>intersection(text,photo))).filter(r=>r.width>2&&r.height>2),caption_photo_overlap:photos.map(photo=>intersection(caption,photo)).filter(r=>r.width>2&&r.height>2)};
+}""")
+                        assert not hero_layout['copy_photo_overlap'] and not hero_layout['caption_photo_overlap'], hero_layout
                         expect(page.locator('.sample-scope-bar,.demo-banner,.review-header,.member-experience')).to_have_count(0)
                         expect(page.get_by_role('button', name=re.compile('確認用管理画面|運営メニューを開閉|確認ツール'))).to_have_count(0)
                         cards = page.locator('#entrances .entry-dock-grid > a.entry-dock-app')
@@ -526,34 +567,62 @@ def main():
                         sample_layout = assert_geometry(page)
                         result = contrasts(page, ['#sns-title', '.sns-editorial-lead', '.sns-editorial-primary', '.entry-dock-app > strong', '.sample-entry-panel p'])
                         screenshot('top')
-                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
+                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, hero_photos=2, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
                                     text_scale=scale_evidence(page) if enlarged else 100)
 
                     run_case('public-top-no-sample-runtime-or-owner', public_top)
 
-                    if not enlarged:
-                        def public_photos():
-                            visit('')
-                            images = page.locator('.sns-editorial-feature .sns-moment-photo img')
-                            expect(images).to_have_count(3)
-                            for image in images.all():
-                                image.scroll_into_view_if_needed()
-                                page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
-                            sources = images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))')
-                            assert len(set(sources)) == 3
-                            opener = page.locator('.sns-editorial-feature .sns-moment-photo').first
+                    def public_features():
+                        visit('')
+                        images = page.locator('.sns-editorial-feature .sns-moment-photo img')
+                        expect(images).to_have_count(3)
+                        for image in images.all():
+                            image.scroll_into_view_if_needed()
+                            page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
+                        sources = images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))')
+                        assert len(set(sources)) == 3
+                        features = [
+                            ('好きなものを、ひとつ。', '投稿へのコメント機能はありません。'),
+                            ('次の楽しみも、ここで。', '仕事・お手伝いは、別の窓口から確認できます。'),
+                            ('連絡は、運営者へ。', 'メンバー同士の個別DMはありません。'),
+                        ]
+                        layouts, feature_contrast = [], []
+                        for index, (title, boundary_text) in enumerate(features):
+                            opener = page.locator('.sns-editorial-feature .sns-moment-photo').nth(index)
                             previous = page.locator('body').evaluate('(element)=>element.style.overflow')
                             opener.click()
-                            dialog = page.get_by_role('dialog', name='写真を大きく見る', exact=True)
-                            expect(dialog).to_be_visible()
-                            dialog.get_by_role('button', name='次の写真', exact=True).click()
-                            expect(dialog.locator('img')).to_have_attribute('src', sources[1])
+                            dialog = page.locator('dialog.sns-feature-dialog[open]')
+                            expect(page.get_by_role('dialog', name=title, exact=True)).to_be_visible()
+                            expect(dialog.locator('.sns-feature-detail img')).to_have_attribute('src', sources[index])
+                            expect(dialog.get_by_role('heading', level=2)).to_have_text(title)
+                            summary = dialog.locator('#sns-feature-summary')
+                            assert 20 <= len(summary.inner_text()) <= 160, 'Feature needs a short, concrete explanation'
+                            expect(dialog.locator('.sns-feature-steps > li')).to_have_count(3)
+                            expect(dialog.locator('.sns-feature-boundary')).to_have_text(boundary_text)
+                            expect(dialog.locator('form,input,textarea,.sample-scope-bar,.review-header,.member-experience')).to_have_count(0)
+                            assert len(dialog.inner_text()) <= 500, 'Public explanation expanded into a sample experience'
+                            if enlarged:
+                                scale_evidence(page, '.sns-feature-dialog')
+                            for section in [dialog.locator('h2'), summary, dialog.locator('.sns-feature-steps > li').last, dialog.locator('.sns-feature-boundary')]:
+                                section.scroll_into_view_if_needed()
+                                layouts.append(assert_geometry(page))
+                            feature_contrast += contrasts(page, ['.sns-feature-dialog h2', '#sns-feature-summary', '.sns-feature-boundary'])
+                            if index == 0:
+                                dialog.get_by_role('button', name='次の機能', exact=True).click()
+                                expect(page.get_by_role('dialog', name=features[1][0], exact=True)).to_be_visible()
+                                expect(dialog.locator('.sns-feature-detail img')).to_have_attribute('src', sources[1])
+                                dialog.get_by_role('button', name='前の機能', exact=True).click()
+                                expect(page.get_by_role('dialog', name=title, exact=True)).to_be_visible()
+                                if width == 390 and not enlarged:
+                                    screenshot('feature-dialog')
                             page.keyboard.press('Escape')
-                            expect(dialog).to_have_count(0)
+                            expect(page.locator('dialog.sns-feature-dialog')).to_have_count(0)
                             expect(opener).to_be_focused()
                             page.wait_for_function('(value)=>document.body.style.overflow===value', arg=previous)
-                            return dict(illustrative_photos_loaded=3, focus_restored=True, scroll_state_restored=True)
-                        run_case('restrained-illustrations-and-photo-dialog', public_photos)
+                        return dict(illustrative_photos_loaded=3, concrete_feature_explanations=3, layouts=layouts,
+                                    contrast=feature_contrast, comment_boundary_explicit=True, public_sample_controls=0,
+                                    focus_restored=True, scroll_state_restored=True)
+                    run_case('public-feature-explanations-and-dialog', public_features)
 
                     for key in ['private', 'connection', 'work']:
                         def entry(key=key):
@@ -607,6 +676,7 @@ def main():
                         visit('review/member/demo/moments/', sample=True)
                         sample_shell(page, public_path)
                         expect(page.get_by_role('textbox', name='今日のひとこと')).to_be_visible()
+                        expect(page.locator('[data-page="moments"]')).to_have_attribute('data-comments', 'disabled')
                         images = page.locator('.moment-photo img')
                         expect(images).to_have_count(3)
                         for image in images.all():
@@ -614,8 +684,21 @@ def main():
                             page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
                         assert len(set(images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))'))) == 3
                         page.get_by_role('heading', level=1).scroll_into_view_if_needed()
+                        assert_no_post_comments(page)
                         value = assert_geometry(page)
                         if not enlarged:
+                            first_post = page.locator('article.moment').first
+                            like = first_post.get_by_role('button', name='スキ', exact=True)
+                            previous_like = like.get_attribute('aria-pressed')
+                            expected_like = 'false' if previous_like == 'true' else 'true'
+                            like.click()
+                            expect(like).to_have_attribute('aria-pressed', expected_like)
+                            reload_page()
+                            assert_no_post_comments(page)
+                            restored_like = page.locator('article.moment').first.get_by_role('button', name='スキ', exact=True)
+                            expect(restored_like).to_have_attribute('aria-pressed', expected_like)
+                            restored_like.click()
+                            expect(restored_like).to_have_attribute('aria-pressed', previous_like)
                             body = 'この画面だけに保存する、表示確認のひとこと。'
                             page.get_by_role('textbox', name='今日のひとこと').fill(body)
                             page.get_by_role('button', name='投稿する', exact=True).click()
@@ -627,7 +710,8 @@ def main():
                             page.get_by_role('button', name='削除する', exact=True).click()
                             expect(page.get_by_text(body, exact=True)).to_have_count(0)
                         screenshot('member-feed')
-                        return dict(layout=value, photographs_loaded=3, local_post_persisted_and_removed=not enlarged)
+                        return dict(layout=value, photographs_loaded=3, comment_controls=0, likes_remain_available=True,
+                                    local_like_persisted_and_restored=not enlarged, local_post_persisted_and_removed=not enlarged)
                     run_case('sample-feed-photos-and-local-post', feed)
 
                     def profile():
@@ -635,18 +719,40 @@ def main():
                         sample_shell(page, public_path)
                         expect(page.locator('.profile-about')).to_be_visible()
                         expect(page.locator('.profile-interests[aria-label="好きなこと"]')).to_be_visible()
+                        expect(page.locator('.profile-cover')).to_have_count(0)
+                        expect(page.locator('.profile-identity')).to_contain_text('プロフィールアイコン')
+                        icon = page.locator('.profile-icon-preview > .avatar[data-image-role="profile-icon"]')
+                        icon_metrics = assert_round_profile_icon(page, icon)
+                        card = page.locator('.profile-pass-panel article.member-pass.pass-compact')
+                        expect(card).to_be_visible()
+                        expect(card.locator('.pass-card-label')).to_contain_text('MEMBER CARD')
+                        expect(card.locator('.pass-card-label')).to_contain_text('メンバーカード')
+                        assert card.get_attribute('aria-label'), 'Member card has no accessible identity label'
                         value = assert_geometry(page)
-                        result = contrasts(page, ['.profile-about h2', '.profile-interests[aria-label="好きなこと"] span'])
+                        result = contrasts(page, ['.profile-identity-copy h1', '.profile-icon-preview > small', '.pass-card-label', '.profile-about h2', '.profile-interests[aria-label="好きなこと"] span'])
                         if not enlarged:
                             page.get_by_role('button', name='編集する', exact=True).click()
+                            expect(page.locator('.profile-pass-panel')).to_have_count(0)
                             intro = 'このサンプル画面だけで自己紹介を確認しています。'
                             page.get_by_role('textbox', name='ひとこと自己紹介', exact=False).fill(intro)
                             page.get_by_role('button', name='プロフィールを保存する', exact=True).click()
                             expect(page.locator('.profile-about')).to_contain_text(intro)
                             reload_page()
                             expect(page.locator('.profile-about')).to_contain_text(intro)
+                            expect(page.locator('.profile-pass-panel article.member-pass.pass-compact')).to_be_visible()
                         screenshot('member-profile')
-                        return dict(layout=value, contrast=result, profile_edit_is_local=not enlarged)
+                        visit('review/member/demo/pass/', sample=True)
+                        sample_shell(page, public_path)
+                        pass_card = page.locator('article.member-pass')
+                        expect(pass_card).to_be_visible()
+                        expect(pass_card.locator('.pass-card-label')).to_contain_text('メンバーカード')
+                        pass_card.scroll_into_view_if_needed()
+                        pass_layout = assert_geometry(page)
+                        pass_contrast = contrasts(page, ['.pass-card-label', '.pass-note'])
+                        screenshot('member-pass')
+                        return dict(layout=value, contrast=result, profile_icon=icon_metrics, visible_labeled_member_card=True,
+                                    decorative_profile_cover=False, profile_edit_is_local=not enlarged, pass_layout=pass_layout,
+                                    pass_contrast=pass_contrast)
                     run_case('sample-profile-no-management-controls', profile)
 
                     def chat():
@@ -692,6 +798,7 @@ def main():
                         expect(section.get_by_role('heading', name='通知を受け取る', exact=True)).to_be_visible()
                         expect(section.locator('[data-push-state]')).to_contain_text('サンプルでは、端末の通知登録や許可の要求は行いません。')
                         expect(section.get_by_role('button', name='この端末で通知を受け取る', exact=True)).to_have_count(0)
+                        expect(section.get_by_text('掲示板の返信', exact=True)).to_have_count(0)
                         link = section.get_by_role('link', name='アプリ内のお知らせを見る', exact=False)
                         assert urlsplit(link.get_attribute('href')).path == public_path + 'review/member/demo/notifications'
                         section.scroll_into_view_if_needed()
