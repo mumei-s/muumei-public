@@ -366,6 +366,32 @@ def assert_no_post_comments(page):
 
 def wait_ready(page):
     expect(page.locator('#main')).to_be_visible(timeout=20000)
+    # DOMContentLoaded and visible DOM do not guarantee that a cold linked
+    # stylesheet has been parsed/applied. Measure only after active sheets and
+    # fonts are ready, with two rendering frames for the resulting layout.
+    try:
+        page.wait_for_function('''() => {
+ const ready=()=>[...document.querySelectorAll('link[rel~="stylesheet"]')]
+  .filter(link=>!link.disabled&&(!link.media||matchMedia(link.media).matches))
+  .every(link=>{try{return !!link.sheet&&!link.sheet.disabled&&link.sheet.cssRules.length>0}catch{return false}})
+  &&(!document.fonts||document.fonts.status==='loaded');
+ if(!ready())return false;
+ return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(ready()))));
+}''', timeout=15000)
+    except Exception as error:
+        diagnostic = page.evaluate('''() => ({
+ readyState:document.readyState,fonts:document.fonts?.status||'unavailable',
+ stylesheets:[...document.querySelectorAll('link[rel~="stylesheet"]')].map(link=>{
+  let rules=null,accessError=null;try{rules=link.sheet?.cssRules.length??null}catch(error){accessError=error.name}
+  const resource=performance.getEntriesByName(link.href).at(-1);
+  return {path:new URL(link.href).pathname,media:link.media||'all',matches:!link.media||matchMedia(link.media).matches,
+   disabled:link.disabled,sheet:!!link.sheet,sheetDisabled:link.sheet?.disabled??null,rules,accessError,
+   responseStatus:resource?.responseStatus??null,duration:resource?.duration??null};
+ }),bodyMargin:document.body?getComputedStyle(document.body).margin:null,
+ film:(()=>{const box=document.querySelector('[data-invitation-film] video')?.getBoundingClientRect();
+  return box?{left:box.left,top:box.top,width:box.width,height:box.height}:null})()
+})''')
+        raise AssertionError('Stylesheet/render readiness failed: ' + json.dumps(diagnostic)) from error
     page.wait_for_function('''() => [...document.images].filter(image => {const r=image.getBoundingClientRect();return r.width>0&&r.height>0&&r.top<innerHeight&&r.bottom>0}).every(image => image.complete&&image.naturalWidth>0)''', timeout=15000)
     assert_private_text(page)
 
