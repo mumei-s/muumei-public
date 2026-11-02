@@ -1,0 +1,26 @@
+{
+  "width": 640,
+  "height": 640,
+  "duration": 6,
+  "fps": 24,
+  "silent": true,
+  "rendering": "native offline three.js 0.182.0",
+  "externalRequests": 0,
+  "files": {
+    "mp4": {
+      "path": "invitation-film.mp4",
+      "bytes": 305331,
+      "sha256": "9a5fb9450c6e466f1ed69d8255702ad3da68562aba48932f50d62f8e151f84b0"
+    },
+    "webm": {
+      "path": "invitation-film.webm",
+      "bytes": 253347,
+      "sha256": "4eacbbf2ebebdb5c6a7e16f48392972642c37f14278374e196a23c8116c4ada9"
+    },
+    "poster": {
+      "path": "invitation-film-poster.webp",
+      "bytes": 13676,
+      "sha256": "2a930854fe941f4a9258c29cd421579fc77098ef433805c7b6f10dda82b3ebf8"
+    }
+  }
+}

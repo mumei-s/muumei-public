@@ -15,7 +15,7 @@ import sys
 import threading
 import traceback
 import unicodedata
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, urljoin
 
 WIDTHS = [344, 360, 390, 430, 768, 820, 1024, 1280, 1440]
 SCHEMES = ['light', 'dark']
@@ -176,7 +176,7 @@ GEOMETRY_JS = r"""() => {
   const left=x?Math.max(a.left,b.left):a.left,right=x?Math.min(a.right,b.right):a.right,top=y?Math.max(a.top,b.top):a.top,bottom=y?Math.min(a.bottom,b.bottom):a.bottom;
   return {x:left,y:top,left,right,top,bottom,width:right-left,height:bottom-top};
  };
- const regions=[...document.querySelectorAll('.public-menu,.member-menu,.public-header-main,.sns-editorial-actions,.sns-pocket-tabs,.sns-peek-skins,.home-shortcuts,.entry-dock-grid,.entry-real-panel,.sample-scope-bar,.app-topbar-actions,.bottom-nav')].filter(visible);
+ const regions=[...document.querySelectorAll('.public-menu,.member-menu,.public-header-main,.sns-editorial-actions,.invitation-film__bar,.sns-pocket-tabs,.sns-peek-skins,.home-shortcuts,.entry-dock-grid,.entry-real-panel,.sample-scope-bar,.app-topbar-actions,.bottom-nav')].filter(visible);
  const overlaps=[];
  for (const region of regions) {
   const controls=[...region.querySelectorAll('a[href],button,input:not([type="hidden"]),textarea,select')].filter(visible);
@@ -397,6 +397,279 @@ def scale_evidence(page, selector='#main'):
 }""", selector)
 
 
+def run_motion_checks(browser, base, engine, origin, record, network, out, recorder=None):
+    """Exercise real same-origin film playback and controlled failure paths.
+
+    These cases deliberately opt into motion. The main nine-width matrix keeps
+    reduced motion enabled and proves a static poster causes no video download.
+    No authentication, backend request or production write is allowed here.
+    """
+    film_selector = '[data-invitation-film]'
+    media_pattern = re.compile(r'\.(?:mp4|webm)$', re.I)
+
+    def capture(page, path, name, **options):
+        try:
+            page.screenshot(path=str(path), **options)
+        except OSError as error:
+            if recorder:
+                recorder.fail('motion-screenshot', error, case=name)
+            raise
+
+    def setup(*, scheme='light', reduced='no-preference', save_data=False,
+              reject_first_play=False, abort_media=False):
+        context = browser.new_context(viewport={'width': 390, 'height': 900},
+                                      color_scheme=scheme, reduced_motion=reduced,
+                                      service_workers='block')
+        context.add_init_script("window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();event.stopImmediatePropagation();},true)")
+        context.add_init_script("""(() => {
+ window.__qaSaveData=""" + json.dumps(save_data) + """;
+ const connection=new EventTarget();
+ Object.defineProperty(connection,'saveData',{get:()=>window.__qaSaveData});
+ Object.defineProperty(navigator,'connection',{value:connection,configurable:true});
+ window.__qaConnection=connection;
+})()""")
+        if reject_first_play:
+            context.add_init_script("""(() => {
+ const play=HTMLMediaElement.prototype.play;window.__qaPlayCalls=0;
+ HTMLMediaElement.prototype.play=function(){
+  window.__qaPlayCalls++;
+  if(window.__qaPlayCalls===1)return Promise.reject(new DOMException('Synthetic autoplay rejection','NotAllowedError'));
+  return play.call(this);
+ };
+})()""")
+        state = dict(requests=[], errors=[], abort_media=abort_media)
+
+        def observe(request):
+            address = urlsplit(request.url)
+            if address.scheme not in ['http', 'https']:
+                return
+            row = dict(engine=engine, width=390, scheme=scheme, text_scale=100,
+                       scope='public-motion', method=request.method, path=address.path,
+                       external=(address.scheme, address.netloc) != origin,
+                       backend=(address.hostname or '').endswith('.supabase.co'))
+            state['requests'].append(row)
+            network.append(row)
+
+        def protect(route):
+            address = urlsplit(route.request.url)
+            if (route.request.method not in ['GET', 'HEAD'] or
+                (address.hostname or '').endswith('.supabase.co') or
+                (address.scheme, address.netloc) != origin):
+                return route.abort()
+            if state['abort_media'] and media_pattern.search(address.path):
+                return route.abort()
+            return route.continue_()
+
+        context.on('request', observe)
+        context.route('**/*', protect)
+        page = context.new_page()
+        page.on('pageerror', lambda error: state['errors'].append(str(error)))
+        return context, page, state
+
+    def open_film(page):
+        response = page.goto(base, wait_until='domcontentloaded')
+        assert response and response.status == 200
+        wait_ready(page)
+        film = page.locator(film_selector)
+        expect(film).to_be_visible()
+        video = film.locator('video')
+        expect(video).to_be_visible()
+        playback = video.evaluate("""v => ({muted:v.muted,loop:v.loop,
+ inlineAttribute:v.hasAttribute('playsinline'),supportsInlineProperty:'playsInline' in v,
+ inlineProperty:'playsInline' in v?Boolean(v.playsInline):null})""")
+        # Gecko plays video inline without implementing the playsInline IDL.
+        # Keep the real HTML attribute required for mobile engines that use it.
+        assert playback['muted'] and playback['loop'] and playback['inlineAttribute'] and (
+            not playback['supportsInlineProperty'] or playback['inlineProperty']), playback
+        return film, video
+
+    def playing(page):
+        page.wait_for_function("""selector => {
+ const v=document.querySelector(selector);
+ return v&&v.readyState>=2&&!v.paused&&v.videoWidth>=480&&v.videoHeight>=480&&v.duration>=5&&v.duration<=9;
+}""", arg=film_selector + ' video', timeout=20000)
+        video = page.locator(film_selector + ' video')
+        value = video.evaluate('(v)=>({time:v.currentTime,duration:v.duration,width:v.videoWidth,height:v.videoHeight,src:v.currentSrc})')
+        address = urlsplit(value['src'])
+        assert (address.scheme, address.netloc) == origin and address.path.startswith(urlsplit(base).path + 'media/'), value
+        page.wait_for_function("""value => {
+ const v=document.querySelector(value.selector);
+ return !v.paused&&Math.abs(v.currentTime-value.time)>.16;
+}""", arg=dict(selector=film_selector + ' video', time=value['time']), timeout=5000)
+        return value
+
+    def poster_only(page, state):
+        video = page.locator(film_selector + ' video')
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        assert video.evaluate('(v)=>v.paused&&!v.currentSrc'), 'Paused first paint should use only the poster'
+        assert not any(media_pattern.search(row['path']) for row in state['requests']), state['requests']
+        page.wait_for_function("""async selector => {
+ const v=document.querySelector(selector),i=new Image();i.src=v.poster;
+ try{await i.decode();return i.naturalWidth>=480&&i.naturalHeight>=480}catch{return false}
+}""", arg=film_selector + ' video', timeout=10000)
+
+    def paused_time(page):
+        video = page.locator(film_selector + ' video')
+        expect(video).to_have_js_property('paused', True)
+        before = video.evaluate('(v)=>v.currentTime')
+        page.wait_for_timeout(400)
+        after = video.evaluate('(v)=>v.currentTime')
+        assert abs(after - before) < .09, dict(before=before, after=after)
+        return dict(before=before, after=after)
+
+    def run(name, callback, **options):
+        context, page, state = setup(**options)
+        try:
+            details = callback(page, state) or {}
+            invalid = [row for row in state['requests'] if row['external'] or row['backend'] or row['method'] not in ['GET', 'HEAD']]
+            assert not invalid, invalid
+            assert not state['errors'], state['errors']
+            record(f'{engine}:390:motion:{name}', True, **details, backend_attempts=0, non_get_requests=0)
+        except EvidenceError:
+            raise
+        except Exception as error:
+            record(f'{engine}:390:motion:{name}', False, error=str(error), traceback=traceback.format_exc(limit=5))
+            try:
+                assert_private_text(page)
+                capture(page, out / f'motion-{engine}-{name}-failure.png', f'{engine}:motion:{name}', full_page=True)
+            except EvidenceError:
+                raise
+            except OSError:
+                raise
+            except Exception:
+                pass
+        finally:
+            context.close()
+
+    def visible_motion(page, state):
+        film, video = open_film(page)
+        source = playing(page)
+        decorative_running = page.evaluate("""() => document.getAnimations().filter(a=>a.effect?.target?.closest?.('[data-motion-art]')&&a.playState==='running').length""")
+        assert decorative_running > 0, 'The normal-motion introduction must actually animate its light and sparkle layers'
+        # A genuine film must change visible pixels; a static still in an MP4
+        # container would pass currentTime checks but not this comparison.
+        page.evaluate("""selector => {
+ const v=document.querySelector(selector),c=document.createElement('canvas');c.width=120;c.height=160;
+ const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,120,160);
+ window.__qaFilmPixels=Array.from(x.getImageData(0,0,120,160).data);
+}""", film_selector + ' video')
+        page.wait_for_timeout(900)
+        difference = page.evaluate("""selector => {
+ const v=document.querySelector(selector),c=document.createElement('canvas');c.width=120;c.height=160;
+ const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,120,160);
+ const a=window.__qaFilmPixels,b=x.getImageData(0,0,120,160).data;let changed=0,total=0;
+ for(let i=0;i<b.length;i+=4){const d=Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2]);total+=d;if(d>20)changed++}
+ delete window.__qaFilmPixels;return {changedFraction:changed/(b.length/4),meanChannelDelta:total/(b.length/4)/3};
+}""", film_selector + ' video')
+        assert difference['changedFraction'] > .015 and difference['meanChannelDelta'] > .6, difference
+        film.get_by_role('button', name='演出を止める', exact=True).click()
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        stopped = paused_time(page)
+        active = page.evaluate("""() => document.getAnimations().filter(a=>a.effect?.target?.closest?.('[data-motion-art]')&&a.playState==='running').length""")
+        assert active == 0, 'Global stop must also stop decorative stars and ribbons'
+        page.reload(wait_until='domcontentloaded')
+        wait_ready(page)
+        expect(page.locator('html')).to_have_attribute('data-motion-choice', 'off')
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        assert page.locator(film_selector + ' video').evaluate('(v)=>!v.currentSrc&&v.paused')
+        page.locator(film_selector).get_by_role('button', name='演出を再生', exact=True).click()
+        playing(page)
+        assert_geometry(page)
+        contrasts(page, ['#sns-title', '.sns-editorial-lead'])
+        if engine == 'chromium':
+            capture(page, out / 'motion-playing-390.png', f'{engine}:motion:playing')
+        return dict(real_video_played=True, source=source, visible_frame_difference=difference,
+                    decorative_animations_running=decorative_running, stopped_time=stopped,
+                    global_pause_stops_decoration=True, pause_persisted=True)
+
+    run('video-visible-changes-and-user-pause', visible_motion)
+
+    def reduced(page, state):
+        film, video = open_film(page)
+        poster_only(page, state)
+        film.get_by_role('button', name='演出を再生', exact=True).click()
+        playing(page)
+        assert page.evaluate("window.muumeiMotion.setChoice('system')") is not False
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        paused_time(page)
+        page.emulate_media(reduced_motion='no-preference')
+        expect(page.locator('html')).to_have_attribute('data-motion', 'playing')
+        playing(page)
+        page.emulate_media(reduced_motion='reduce')
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        paused_time(page)
+        return dict(reduced_motion_no_initial_video_download=True, explicit_play_supported=True, live_preference_changes=True)
+
+    run('reduced-motion-poster-and-explicit-play', reduced, reduced='reduce', scheme='dark')
+
+    def saver(page, state):
+        film, video = open_film(page)
+        poster_only(page, state)
+        film.get_by_role('button', name='演出を再生', exact=True).click()
+        playing(page)
+        assert page.evaluate("window.muumeiMotion.setChoice('system')") is not False
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        paused_time(page)
+        page.evaluate("window.__qaSaveData=false;window.__qaConnection.dispatchEvent(new Event('change'))")
+        expect(page.locator('html')).to_have_attribute('data-motion', 'playing')
+        playing(page)
+        return dict(save_data_no_initial_video_download=True, explicit_play_supported=True, connection_change_follows_system=True)
+
+    run('data-saver-poster-and-explicit-play', saver, save_data=True)
+
+    def visibility(page, state):
+        film, video = open_film(page)
+        playing(page)
+        page.locator('#entrances').scroll_into_view_if_needed()
+        paused_time(page)
+        page.evaluate('window.scrollTo(0,0)')
+        playing(page)
+        # Both properties are replaced in this fixture because different engines
+        # expose background-page state differently in headless automation.
+        page.evaluate("""() => {
+ window.__qaHidden=true;
+ Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.__qaHidden});
+ Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>window.__qaHidden?'hidden':'visible'});
+ document.dispatchEvent(new Event('visibilitychange'));
+}""")
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        paused_time(page)
+        page.evaluate("window.__qaHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
+        playing(page)
+        film.get_by_role('button', name='演出を止める', exact=True).click()
+        page.locator('#entrances').scroll_into_view_if_needed()
+        page.evaluate('window.scrollTo(0,0)')
+        paused_time(page)
+        expect(page.locator('html')).to_have_attribute('data-motion-choice', 'off')
+        return dict(offscreen_pauses=True, visible_resumes=True, hidden_document_pauses=True, user_pause_not_overridden=True)
+
+    run('offscreen-and-hidden-page-pause', visibility, scheme='dark')
+
+    def rejected(page, state):
+        film, video = open_film(page)
+        expect(film).to_have_attribute('data-film-state', 'blocked', timeout=10000)
+        expect(video).to_have_js_property('paused', True)
+        assert video.get_attribute('poster')
+        film.get_by_role('button', name='演出を再生', exact=True).click()
+        playing(page)
+        assert page.evaluate('window.__qaPlayCalls') >= 2
+        return dict(autoplay_denial_poster_preserved=True, manual_play_recovered=True)
+
+    run('autoplay-rejection-has-manual-recovery', rejected, reject_first_play=True)
+
+    def failed(page, state):
+        film, video = open_film(page)
+        expect(film).to_have_attribute('data-film-state', 'error', timeout=15000)
+        assert video.get_attribute('poster')
+        expect(film.get_by_role('button', name='映像を再試行', exact=True)).to_be_visible()
+        state['abort_media'] = False
+        film.get_by_role('button', name='映像を再試行', exact=True).click()
+        playing(page)
+        return dict(media_failure_keeps_poster=True, manual_retry_recovers=True)
+
+    run('media-network-failure-and-retry', failed, abort_media=True)
+
+
 def main():
     # Keeping the recorder importable lets its failure paths run without a
     # browser; the actual browser verification still requires Playwright.
@@ -533,14 +806,33 @@ def main():
                         expect(preview.get_by_role('tab', name='日々', exact=True)).to_have_attribute('aria-selected', 'true')
                         expect(preview.get_by_role('tabpanel', name='日々', exact=True)).to_be_visible()
                         expect(preview.locator('form,input,textarea,img,video')).to_have_count(0)
+                        film = page.locator('[data-invitation-film]')
+                        expect(film).to_have_count(1)
+                        expect(film).to_be_visible()
+                        video = film.locator('video')
+                        expect(video).to_have_count(1)
+                        expect(video).to_have_attribute('preload', 'none')
+                        poster = video.get_attribute('poster')
+                        assert poster and urlsplit(urljoin(base, poster)).path.startswith(public_path + 'media/'), poster
+                        page.wait_for_function('''async selector => {
+ const video=document.querySelector(selector);if(!video||!video.poster)return false;
+ const image=new Image();image.src=video.poster;
+ try{await image.decode();return image.naturalWidth>=480&&image.naturalHeight>=480}catch{return false}
+}''', arg='[data-invitation-film] video', timeout=15000)
+                        assert not video.evaluate('(element)=>element.currentSrc'), 'Reduced-motion mode must retain a poster without requesting the film'
+                        assert not any(re.search(r'\.(?:mp4|webm)$', row['path']) for row in requests), 'Reduced-motion visitors should not download automatic video'
                         hero_layout = page.locator('.sns-editorial-hero').evaluate("""hero => {
  const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}};
  const intersection=(a,b)=>({width:Math.min(a.right,b.right)-Math.max(a.left,b.left),height:Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)});
- const preview=box(hero.querySelector('.sns-pocket'));
+ const film=box(hero.querySelector('[data-invitation-film] video'));
  const copy=[hero.querySelector('h1'),hero.querySelector('.sns-editorial-lead')].map(box);
- return {copy_preview_overlap:copy.map(text=>intersection(text,preview)).filter(r=>r.width>2&&r.height>2),hero_photos:hero.querySelectorAll('img').length};
+ const preview=document.querySelector('.sns-preview-section');
+ return {copy_film_overlap:copy.map(text=>intersection(text,film)).filter(r=>r.width>2&&r.height>2),hero_photos:hero.querySelectorAll('img').length,
+         film,preview_separate:!!preview&&!hero.contains(preview)&&preview.getBoundingClientRect().top>=hero.getBoundingClientRect().bottom-2};
 }""")
-                        assert not hero_layout['copy_preview_overlap'], hero_layout
+                        assert not hero_layout['copy_film_overlap'] and hero_layout['preview_separate'], hero_layout
+                        if width <= 430 and not enlarged:
+                            assert hero_layout['film']['top'] < 400 and hero_layout['film']['bottom'] > hero_layout['film']['top'] + 250, hero_layout
                         expect(page.locator('.sample-scope-bar,.demo-banner,.review-header,.member-experience')).to_have_count(0)
                         expect(page.get_by_role('button', name=re.compile('確認用管理画面|運営メニューを開閉|確認ツール'))).to_have_count(0)
                         cards = page.locator('#entrances .entry-dock-grid > a.entry-dock-app')
@@ -566,6 +858,7 @@ def main():
                         result = contrasts(page, ['#sns-title', '.sns-editorial-lead', '.sns-editorial-primary', '.entry-dock-app > strong', '.sample-entry-panel p'])
                         screenshot('top')
                         return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, hero_photos=0, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
+                                    film_poster_decoded=True, reduced_motion_video_requests=0, manual_preview_separate_from_film=True,
                                     text_scale=scale_evidence(page) if enlarged else 100)
 
                     run_case('public-top-no-sample-runtime-or-owner', public_top)
@@ -1000,6 +1293,7 @@ def main():
                         return dict(backend_attempts=0, external_http_attempts=0, non_get_requests=0, empty_sample_backend_config=True)
                     run_case('public-and-sample-no-backend-or-real-write', boundary)
                     context.close()
+                run_motion_checks(browser, base, engine, origin, record, network, out, recorder)
                 browser.close()
     finally:
         if server:

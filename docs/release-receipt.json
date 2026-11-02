@@ -1,18 +1,18 @@
 {
-  "sourceRevision": "9db1c13f4fc5e25ad85cd030c03fcfef8b87e884",
+  "sourceRevision": "b53b044f93bfe1a162d3332f949d2a197350e15b",
   "mode": "separated-public-and-participant-sample",
-  "memberSourceRevision": "9db1c13f4fc5e25ad85cd030c03fcfef8b87e884",
+  "memberSourceRevision": "b53b044f93bfe1a162d3332f949d2a197350e15b",
   "realMemberRuntime": "current-compiled",
   "workGuide": {
     "mode": "static-information",
-    "sourceRevision": "9db1c13f4fc5e25ad85cd030c03fcfef8b87e884",
+    "sourceRevision": "b53b044f93bfe1a162d3332f949d2a197350e15b",
     "referenceBaseline": "b06791ab845d0cf00b30f3f9bc01b01fb19d49a2",
     "referenceSourceRevision": "6a45a75563f915ab062052f231127b43cb03e136",
     "submissionEnabled": false,
     "backendConnection": false,
     "javascript": false,
     "stylePath": "assets/work-guide-02d3526f7e32.css",
-    "htmlSha256": "28f72540078172f8c4a446553f57092021f4e4bc3d1600863a0c3d6fd3e26d5a",
+    "htmlSha256": "9eb94c764e1629efc6291832b0a8e60649ea9e7f6a6cd87ca14d29250ce59eb8",
     "cssSha256": "02d3526f7e3250ba095f6ba0e4f4e0a91bde0180f561865d6e5b57dd7cfb5b79"
   },
   "realBackendChanged": false,
