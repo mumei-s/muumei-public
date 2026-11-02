@@ -39,7 +39,7 @@ with sync_playwright() as p:
   try:
    page.goto(base,wait_until='domcontentloaded');expect(page.locator('#main')).to_be_visible(timeout=20000)
    expect(page.locator('[data-page="community-landing"]')).to_be_visible()
-   expect(page.locator('#sns-title')).to_contain_text('ふだんの話')
+   expect(page.locator('#sns-title')).to_contain_text('会ったあとも、楽しみがつづく。')
    bar=page.locator('.app-utility-bar');expect(bar).to_have_count(1);expect(bar).to_be_visible()
    strip=bar.evaluate('(e)=>({height:e.getBoundingClientRect().height,scroll:e.scrollHeight,client:e.clientHeight})')
    assert 0<strip['height']<=44 and strip['scroll']<=strip['client']+2,strip
@@ -73,8 +73,8 @@ with sync_playwright() as p:
    context.set_offline(False)
    page.get_by_role('button',name='もう一度試す',exact=True).click()
    expect(page.locator('#main')).to_be_visible(timeout=20000)
-   expect(page.locator('#sns-title')).to_contain_text('ふだんの話')
-   expect(page.locator('.sns-editorial-lead')).to_contain_text('知っている人')
+   expect(page.locator('#sns-title')).to_contain_text('会ったあとも、楽しみがつづく。')
+   expect(page.locator('.sns-editorial-lead')).to_contain_text('会った人と、少しだけ日常を分けあう。')
    cards=page.locator('#entrances .entry-dock-grid > a.entry-dock-app');expect(cards).to_have_count(3)
    paths=cards.evaluate_all('(els)=>els.map(e=>new URL(e.href).pathname)')
    assert paths==[urlsplit(base).path+'entry/'+key+'/' for key in ['private','connection','work']],paths

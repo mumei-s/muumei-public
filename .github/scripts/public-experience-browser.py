@@ -176,7 +176,7 @@ GEOMETRY_JS = r"""() => {
   const left=x?Math.max(a.left,b.left):a.left,right=x?Math.min(a.right,b.right):a.right,top=y?Math.max(a.top,b.top):a.top,bottom=y?Math.min(a.bottom,b.bottom):a.bottom;
   return {x:left,y:top,left,right,top,bottom,width:right-left,height:bottom-top};
  };
- const regions=[...document.querySelectorAll('.public-header-main,.sns-editorial-actions,.entry-dock-grid,.entry-real-panel,.sample-scope-bar,.app-topbar-actions,.bottom-nav')].filter(visible);
+ const regions=[...document.querySelectorAll('.public-menu,.member-menu,.public-header-main,.sns-editorial-actions,.sns-pocket-tabs,.sns-peek-skins,.home-shortcuts,.entry-dock-grid,.entry-real-panel,.sample-scope-bar,.app-topbar-actions,.bottom-nav')].filter(visible);
  const overlaps=[];
  for (const region of regions) {
   const controls=[...region.querySelectorAll('a[href],button,input:not([type="hidden"]),textarea,select')].filter(visible);
@@ -220,9 +220,9 @@ GEOMETRY_JS = r"""() => {
    lines.push({node,parent,box:painted});
   }
  }
- const opaqueFixedCover = (front,back,box) => {
+ const opaqueChromeCover = (front,back,box) => {
   for(let ancestor=front.parent;ancestor;ancestor=ancestor.parentElement){
-   const style=getComputedStyle(ancestor);if(!['fixed','sticky'].includes(style.position)||ancestor.contains(back.parent))continue;
+   const style=getComputedStyle(ancestor);if(!(['fixed','sticky'].includes(style.position)||(style.position==='absolute'&&ancestor.matches('.public-menu,.member-menu')))||ancestor.contains(back.parent))continue;
    const color=style.backgroundColor,slash=color.match(/\/\s*([.\d]+)(%)?\s*\)$/);
    let alpha=Number.NaN;
    if(color==='transparent')alpha=0;
@@ -243,7 +243,7 @@ GEOMETRY_JS = r"""() => {
   if(a.parent.contains(b.parent)||b.parent.contains(a.parent))continue;
   const box=intersect(a.box,b.box);
   if(box.width>2&&box.height>2){
-   if(opaqueFixedCover(a,b,box)||opaqueFixedCover(b,a,box)){occludedByOpaqueChrome++;continue;}
+   if(opaqueChromeCover(a,b,box)||opaqueChromeCover(b,a,box)){occludedByOpaqueChrome++;continue;}
    textOverlaps.push({a:name(a.parent),b:name(b.parent),dx:box.width,dy:box.height});
   }
  }
@@ -524,25 +524,23 @@ def main():
                         visit('')
                         expect(page.locator('[data-surface="public-information"]')).to_be_visible()
                         expect(page.locator('.sns-editorial-hero')).to_be_visible()
-                        expect(page.locator('#sns-title')).to_contain_text('会った人と、')
-                        expect(page.locator('#sns-title')).to_contain_text('ふだんの話を。')
-                        hero_scene = page.locator('.sns-editorial-hero-scene')
-                        expect(hero_scene).to_have_attribute('aria-hidden', 'true')
-                        hero_images = hero_scene.locator('img')
-                        expect(hero_images).to_have_count(2)
-                        for image in hero_images.all():
-                            page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
-                            expect(image).to_have_attribute('alt', '')
-                        assert len(set(hero_images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))'))) == 2
+                        expect(page.locator('#sns-title')).to_contain_text('会ったあとも、')
+                        expect(page.locator('#sns-title')).to_contain_text('楽しみがつづく。')
+                        preview = page.get_by_role('region', name='MUUMEIの画面イメージ', exact=True)
+                        expect(preview).to_have_attribute('data-preview', 'local-only')
+                        expect(preview.get_by_role('tablist', name='画面イメージの切り替え', exact=True)).to_be_visible()
+                        expect(preview.get_by_role('tab')).to_have_count(3)
+                        expect(preview.get_by_role('tab', name='日々', exact=True)).to_have_attribute('aria-selected', 'true')
+                        expect(preview.get_by_role('tabpanel', name='日々', exact=True)).to_be_visible()
+                        expect(preview.locator('form,input,textarea,img,video')).to_have_count(0)
                         hero_layout = page.locator('.sns-editorial-hero').evaluate("""hero => {
  const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}};
  const intersection=(a,b)=>({width:Math.min(a.right,b.right)-Math.max(a.left,b.left),height:Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)});
- const photos=[...hero.querySelectorAll('.sns-editorial-hero-scene img')].map(box);
+ const preview=box(hero.querySelector('.sns-pocket'));
  const copy=[hero.querySelector('h1'),hero.querySelector('.sns-editorial-lead')].map(box);
- const caption=box(hero.querySelector('.sns-hero-scene-caption'));
- return {copy_photo_overlap:copy.flatMap(text=>photos.map(photo=>intersection(text,photo))).filter(r=>r.width>2&&r.height>2),caption_photo_overlap:photos.map(photo=>intersection(caption,photo)).filter(r=>r.width>2&&r.height>2)};
+ return {copy_preview_overlap:copy.map(text=>intersection(text,preview)).filter(r=>r.width>2&&r.height>2),hero_photos:hero.querySelectorAll('img').length};
 }""")
-                        assert not hero_layout['copy_photo_overlap'] and not hero_layout['caption_photo_overlap'], hero_layout
+                        assert not hero_layout['copy_preview_overlap'], hero_layout
                         expect(page.locator('.sample-scope-bar,.demo-banner,.review-header,.member-experience')).to_have_count(0)
                         expect(page.get_by_role('button', name=re.compile('確認用管理画面|運営メニューを開閉|確認ツール'))).to_have_count(0)
                         cards = page.locator('#entrances .entry-dock-grid > a.entry-dock-app')
@@ -567,23 +565,81 @@ def main():
                         sample_layout = assert_geometry(page)
                         result = contrasts(page, ['#sns-title', '.sns-editorial-lead', '.sns-editorial-primary', '.entry-dock-app > strong', '.sample-entry-panel p'])
                         screenshot('top')
-                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, hero_photos=2, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
+                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, hero_photos=0, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
                                     text_scale=scale_evidence(page) if enlarged else 100)
 
                     run_case('public-top-no-sample-runtime-or-owner', public_top)
 
+                    def public_preview():
+                        visit('')
+                        preview = page.get_by_role('region', name='MUUMEIの画面イメージ', exact=True)
+                        tab = preview.get_by_role('tab', name='日々', exact=True)
+                        tab.focus()
+                        expect(tab).to_be_focused()
+                        like = preview.get_by_role('button', name='画面イメージでスキを試す', exact=True)
+                        expect(like).to_have_attribute('aria-pressed', 'false')
+                        like.click()
+                        expect(like).to_have_attribute('aria-pressed', 'true')
+                        expect(preview.locator('.sns-pocket-caption [aria-live="polite"]')).to_contain_text('スキを押したときの見え方です。')
+                        tab.focus()
+                        page.keyboard.press('ArrowRight')
+                        invite_tab = preview.get_by_role('tab', name='お誘い', exact=True)
+                        expect(invite_tab).to_be_focused()
+                        expect(invite_tab).to_have_attribute('aria-selected', 'true')
+                        expect(preview.get_by_role('tabpanel', name='お誘い', exact=True)).to_be_visible()
+                        interested = preview.get_by_role('button', name='画面イメージで気になるを試す', exact=True)
+                        interested.click()
+                        expect(interested).to_have_attribute('aria-pressed', 'true')
+                        invite_tab.focus()
+                        page.keyboard.press('End')
+                        card_tab = preview.get_by_role('tab', name='カード', exact=True)
+                        expect(card_tab).to_be_focused()
+                        expect(card_tab).to_have_attribute('aria-selected', 'true')
+                        expect(preview.get_by_role('tabpanel', name='カード', exact=True)).to_be_visible()
+                        layouts = []
+                        for index, name in enumerate(['パール', 'ノワール', 'ロゼ']):
+                            color = preview.get_by_role('button', name=name, exact=True)
+                            color.click()
+                            expect(color).to_have_attribute('aria-pressed', 'true')
+                            expect(preview.locator('.sns-peek-pass-' + str(index))).to_be_visible()
+                            if enlarged:
+                                scale_evidence(page, '.sns-pocket')
+                            layouts.append(assert_geometry(page))
+                        if width == 390 and not enlarged:
+                            screenshot('pocket-card-preview')
+                        card_tab.focus()
+                        page.keyboard.press('Home')
+                        expect(tab).to_be_focused()
+                        expect(tab).to_have_attribute('aria-selected', 'true')
+                        expect(preview.get_by_role('button', name='画面イメージでスキを試す', exact=True)).to_have_attribute('aria-pressed', 'true')
+                        page.keyboard.press('ArrowLeft')
+                        expect(card_tab).to_be_focused()
+                        expect(preview.get_by_role('tab', name='日々', exact=True)).to_have_attribute('tabindex', '-1')
+                        expect(preview.get_by_role('tab', name='お誘い', exact=True)).to_have_attribute('tabindex', '-1')
+                        expect(card_tab).to_have_attribute('tabindex', '0')
+                        expect(preview.get_by_role('tabpanel')).to_have_count(1)
+                        expect(preview).to_contain_text('見本のため、投稿・送信は行いません。')
+                        sample = preview.get_by_role('link', name='操作サンプルをひらく', exact=False)
+                        assert urlsplit(sample.get_attribute('href')).path == public_path + 'review/'
+                        expect(preview.locator('form,input,textarea,video')).to_have_count(0)
+                        reload_page()
+                        expect(page.get_by_role('button', name='画面イメージでスキを試す', exact=True)).to_have_attribute('aria-pressed', 'false')
+                        return dict(manual_preview_tabs=3, keyboard_roving_focus=True, preview_reactions_local_only=True,
+                                    card_color_choices=3, layouts=layouts, preview_not_persisted=True, autoplay_media=0)
+                    run_case('public-pocket-preview-keyboard-and-local-reactions', public_preview)
+
                     def public_features():
                         visit('')
-                        images = page.locator('.sns-editorial-feature .sns-moment-photo img')
-                        expect(images).to_have_count(3)
-                        for image in images.all():
-                            image.scroll_into_view_if_needed()
-                            page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=image.element_handle(), timeout=10000)
-                        sources = images.evaluate_all('(items)=>items.map(item=>item.getAttribute("src"))')
-                        assert len(set(sources)) == 3
+                        openers = page.locator('.sns-editorial-feature .sns-moment-photo')
+                        expect(openers).to_have_count(3)
+                        # Native feature symbols avoid repeating stock photography.
+                        # Their dialogs still need three distinct, loaded examples.
+                        expect(openers.locator('img')).to_have_count(0)
+                        expect(openers.locator('.sns-feature-art[aria-hidden="true"]')).to_have_count(3)
+                        sources = []
                         features = [
-                            ('好きなものを、ひとつ。', '投稿へのコメント機能はありません。'),
-                            ('次の楽しみも、ここで。', '仕事・お手伝いは、別の窓口から確認できます。'),
+                            ('写真と、ひとこと。', '投稿へのコメント機能はありません。'),
+                            ('次の予定に、楽しみを。', '仕事・お手伝いは、別の窓口から確認できます。'),
                             ('連絡は、運営者へ。', 'メンバー同士の個別DMはありません。'),
                         ]
                         layouts, feature_contrast = [], []
@@ -593,7 +649,10 @@ def main():
                             opener.click()
                             dialog = page.locator('dialog.sns-feature-dialog[open]')
                             expect(page.get_by_role('dialog', name=title, exact=True)).to_be_visible()
-                            expect(dialog.locator('.sns-feature-detail img')).to_have_attribute('src', sources[index])
+                            detail_image = dialog.locator('.sns-feature-detail img')
+                            page.wait_for_function('(image)=>image.complete&&image.naturalWidth>0', arg=detail_image.element_handle(), timeout=10000)
+                            sources.append(detail_image.get_attribute('src'))
+                            assert detail_image.get_attribute('alt'), 'Feature photograph needs a concrete description'
                             expect(dialog.get_by_role('heading', level=2)).to_have_text(title)
                             summary = dialog.locator('#sns-feature-summary')
                             assert 20 <= len(summary.inner_text()) <= 160, 'Feature needs a short, concrete explanation'
@@ -610,7 +669,8 @@ def main():
                             if index == 0:
                                 dialog.get_by_role('button', name='次の機能', exact=True).click()
                                 expect(page.get_by_role('dialog', name=features[1][0], exact=True)).to_be_visible()
-                                expect(dialog.locator('.sns-feature-detail img')).to_have_attribute('src', sources[1])
+                                next_source = dialog.locator('.sns-feature-detail img').get_attribute('src')
+                                assert next_source != sources[0], 'Next feature must show its own example'
                                 dialog.get_by_role('button', name='前の機能', exact=True).click()
                                 expect(page.get_by_role('dialog', name=title, exact=True)).to_be_visible()
                                 if width == 390 and not enlarged:
@@ -619,10 +679,59 @@ def main():
                             expect(page.locator('dialog.sns-feature-dialog')).to_have_count(0)
                             expect(opener).to_be_focused()
                             page.wait_for_function('(value)=>document.body.style.overflow===value', arg=previous)
-                        return dict(illustrative_photos_loaded=3, concrete_feature_explanations=3, layouts=layouts,
+                        assert len(set(sources)) == 3, 'Each explanation needs its own distinct photograph'
+                        return dict(illustrative_photos_loaded=3, native_feature_symbols=3, concrete_feature_explanations=3, layouts=layouts,
                                     contrast=feature_contrast, comment_boundary_explicit=True, public_sample_controls=0,
                                     focus_restored=True, scroll_state_restored=True)
                     run_case('public-feature-explanations-and-dialog', public_features)
+
+                    if width == 390:
+                        def theme_modes():
+                            visit('')
+                            expect(page.locator('html')).to_have_attribute('data-theme-choice', 'system')
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', scheme)
+                            expected_meta = {'light': '#fbfaf6', 'dark': '#19191d'}
+                            assert page.locator('meta[name="theme-color"]').get_attribute('content') == expected_meta[scheme]
+                            page.get_by_role('button', name='メニューを開く', exact=True).click()
+                            theme = page.get_by_role('group', name='表示モード', exact=True)
+                            expect(theme).to_be_visible()
+                            if enlarged:
+                                scale_evidence(page, '.public-menu')
+                            theme_layout = assert_geometry(page)
+                            automatic = theme.get_by_role('radio', name='端末に合わせる', exact=False)
+                            expect(automatic).to_be_checked()
+                            opposite = 'dark' if scheme == 'light' else 'light'
+                            opposite_name = 'ダーク' if opposite == 'dark' else 'ライト'
+                            theme.get_by_role('radio', name=opposite_name, exact=False).check()
+                            expect(page.locator('html')).to_have_attribute('data-theme-choice', opposite)
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', opposite)
+                            assert page.locator('meta[name="theme-color"]').get_attribute('content') == expected_meta[opposite]
+                            assert page.locator('html').evaluate('(element)=>getComputedStyle(element).colorScheme') == opposite
+                            # The selected theme wins even when the device mode changes.
+                            page.emulate_media(color_scheme=opposite)
+                            page.emulate_media(color_scheme=scheme)
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', opposite)
+                            reload_page()
+                            expect(page.locator('html')).to_have_attribute('data-theme-choice', opposite)
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', opposite)
+                            page.get_by_role('button', name='メニューを開く', exact=True).click()
+                            theme = page.get_by_role('group', name='表示モード', exact=True)
+                            theme.get_by_role('radio', name='端末に合わせる', exact=False).check()
+                            expect(page.locator('html')).to_have_attribute('data-theme-choice', 'system')
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', scheme)
+                            page.emulate_media(color_scheme=opposite)
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', opposite)
+                            assert page.locator('meta[name="theme-color"]').get_attribute('content') == expected_meta[opposite]
+                            assert page.locator('html').evaluate('(element)=>getComputedStyle(element).colorScheme') == opposite
+                            assert page.evaluate("localStorage.getItem('muumei-color-mode-v1')") is None
+                            page.keyboard.press('Escape')
+                            reload_page()
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', opposite)
+                            page.emulate_media(color_scheme=scheme)
+                            expect(page.locator('html')).to_have_attribute('data-color-mode', scheme)
+                            return dict(manual_opposite_device_mode=True, choice_persisted=True, live_device_mode=True,
+                                        automatic_choice_clears_override=True, color_scheme_and_browser_bar_synced=True, layout=theme_layout)
+                        run_case('device-theme-manual-override-and-live-system-following', theme_modes)
 
                     for key in ['private', 'connection', 'work']:
                         def entry(key=key):
@@ -652,7 +761,7 @@ def main():
                                 if key == 'work':
                                     expect(page.locator('.public-work-form')).to_be_visible()
                                 else:
-                                    expect(page.locator('.home-feature-copy')).to_be_visible()
+                                    expect(page.locator('.member-journal .home-shortcuts')).to_be_visible()
                                 page.locator('.sample-scope-bar').get_by_role('link', name='トップへ戻る', exact=True).click()
                                 wait_ready(page)
                                 expect(page.locator('[data-surface="public-information"]')).to_be_visible()
@@ -664,7 +773,14 @@ def main():
                         visit('review/', sample=True)
                         assert urlsplit(page.url).path == sample_home_path
                         sample_shell(page, public_path)
-                        expect(page.locator('.home-feature-copy')).to_be_visible()
+                        expect(page.locator('.member-journal .home-shortcuts')).to_be_visible()
+                        expect(page.locator('.member-journal .home-feature')).to_have_count(0)
+                        expect(page.get_by_role('navigation', name='今日のMUUMEI', exact=True).get_by_role('link')).to_have_count(3)
+                        expect(page.locator('.journal-write-entry')).to_be_visible()
+                        expect(page.locator('#home-next-title')).to_have_text('次のお誘い')
+                        expect(page.locator('#home-moments-title')).to_have_text('みんなの近況')
+                        expect(page.locator('.home-next-list .next-item')).to_have_count(2)
+                        expect(page.locator('.home-moments article.moment')).to_have_count(2)
                         value = assert_geometry(page)
                         result = contrasts(page, ['.sample-scope-brand', '.sample-scope-bar > a', '#main h1'])
                         screenshot('member-home')
@@ -693,14 +809,25 @@ def main():
                             expected_like = 'false' if previous_like == 'true' else 'true'
                             like.click()
                             expect(like).to_have_attribute('aria-pressed', expected_like)
+                            expect(first_post.get_by_role('status')).to_have_text('スキを届けました' if expected_like == 'true' else 'スキを取り消しました')
+                            assert like.locator('svg').evaluate('(element)=>getComputedStyle(element).animationName') == 'none', 'Reduced motion should suppress the heart animation'
                             reload_page()
                             assert_no_post_comments(page)
                             restored_like = page.locator('article.moment').first.get_by_role('button', name='スキ', exact=True)
                             expect(restored_like).to_have_attribute('aria-pressed', expected_like)
                             restored_like.click()
                             expect(restored_like).to_have_attribute('aria-pressed', previous_like)
+                            draft = page.get_by_role('textbox', name='今日のひとこと')
+                            page.get_by_text('書き出しに迷ったら', exact=True).click()
+                            prompt = page.get_by_role('button', name='今日おいしかったものは、', exact=False)
+                            prompt.click()
+                            expect(draft).to_have_value('今日おいしかったものは、')
+                            expect(draft).to_be_focused()
+                            expect(prompt).to_be_disabled()
                             body = 'この画面だけに保存する、表示確認のひとこと。'
-                            page.get_by_role('textbox', name='今日のひとこと').fill(body)
+                            draft.fill(body)
+                            expect(prompt).to_be_disabled()
+                            expect(draft).to_have_value(body)
                             page.get_by_role('button', name='投稿する', exact=True).click()
                             expect(page.get_by_text(body, exact=True)).to_be_visible()
                             reload_page()
@@ -747,6 +874,17 @@ def main():
                         expect(pass_card).to_be_visible()
                         expect(pass_card.locator('.pass-card-label')).to_contain_text('メンバーカード')
                         pass_card.scroll_into_view_if_needed()
+                        shine = pass_card.get_by_role('button', name='光をあてる', exact=True)
+                        expect(shine).to_have_attribute('aria-pressed', 'false')
+                        identity_before = pass_card.locator('.pass-meta').inner_text()
+                        shine.click()
+                        expect(pass_card.get_by_role('button', name='光をもどす', exact=True)).to_have_attribute('aria-pressed', 'true')
+                        expect(pass_card).to_have_class(re.compile(r'\bfoil-lit\b'))
+                        assert pass_card.locator('.pass-meta').inner_text() == identity_before
+                        assert pass_card.evaluate('(element)=>getComputedStyle(element,"::after").animationName') == 'none', 'Reduced motion should suppress the card sweep'
+                        pass_card.get_by_role('button', name='光をもどす', exact=True).click()
+                        expect(pass_card.get_by_role('button', name='光をあてる', exact=True)).to_have_attribute('aria-pressed', 'false')
+                        assert pass_card.evaluate('(element)=>element.scrollTop') == 0, 'Card decoration must not create an internal focus scroll that hides identity'
                         pass_layout = assert_geometry(page)
                         pass_contrast = contrasts(page, ['.pass-card-label', '.pass-note'])
                         screenshot('member-pass')

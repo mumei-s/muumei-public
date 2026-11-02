@@ -1,27 +1,18 @@
-# MUUMEI public distribution
+# MUUMEI 公開配布
 
-Public URL: https://mumei-s.github.io/muumei-public/
-Participant-only sample: https://mumei-s.github.io/muumei-public/review/
+招待制プライベートSNS「MUUMEI」の、検証済み静的配布物です。
 
-This repository holds compiled files only. The canonical source is the private
-`mumei-s/muumei` repository. Public information, actual member/Auth pages and the
-isolated participant sample are built from source
-`7cb5ac9ba27467b9b7bc0045bcab96bc2e963333`.
+- [MUUMEI](https://mumei-s.github.io/muumei-public/)
+- [参加者の操作サンプル](https://mumei-s.github.io/muumei-public/review/)
 
-The public introduction has no member data or backend connection. The participant
-sample uses fictional device-local content and empty backend configuration.
-Actual member/Auth pages keep their existing auth storage and runtime public
-configuration endpoint. New registration remains closed (`ready=false`).
+紹介ページ・実会員画面・参加者サンプルは、同じ検証済みソースからコンパイルしています。会員誌をイメージした紹介と会員ホーム、操作に反応する小さな演出、端末に追随する明暗表示と手動選択を含みます。
 
-`/jobs` and `/direct` are static work guides with no script, form or submission.
-Actual-member work routes redirect to these guides before creating a form.
+一般登録の受付は停止中です。サンプルは架空データだけで動き、本番の登録・投稿・送信を行いません。実会員の認証画面とサンプルの入口は分離しています。
 
-The interface has pearl/rose and dark-plum themes, distinct round profile icons,
-visible member cards and short feature explanations. Post comment and board
-reply interfaces are removed; the separate production database policy migration
-is pending explicit rollout approval. Likes, standalone posts and OWNER chat
-remain available within their existing authorization gates.
+OWNER管理画面は、この公開配布に含みません。認証付き管理画面と招待QRの配布物は、独立した公開先のために別途準備しています。実認証・招待・通知の運用開始には、専用の設定と通し確認が必要です。
 
-No OWNER distribution, source code, SQL, environment files, privileged keys or
-source maps are included. Auth, email, separate OWNER hosting and device Push
-setup/E2E remain separate release gates. No paid plan or service is added.
+`docs/` はコンパイル済み配布物のみです。一般向け紹介・実会員・参加者サンプルのソース版は `release-receipt.json` で確認できます。正本ソースは非公開リポジトリで管理しています。
+
+配布元ソース: `9db1c13f4fc5e25ad85cd030c03fcfef8b87e884`
+
+データベースや認証サービスの設定は、このリポジトリの公開によって変更されません。
