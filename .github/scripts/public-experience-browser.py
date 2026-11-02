@@ -696,6 +696,322 @@ def run_motion_checks(browser, base, engine, origin, record, network, out, recor
     run('media-network-failure-and-retry', failed, abort_media=True)
 
 
+def run_chat_scroll_checks(browser, base, engine, origin, record, network, out, recorder=None):
+    """Long conversations in the isolated fictional participant sample only.
+
+    Real authentication, backend requests and non-GET requests are blocked.
+    Storage events stand in for another tab receiving fictional messages;
+    production data, realtime channels and device notifications are never used.
+    """
+    storage_key = 'muumei-member-sample-v3'
+    thread_id = '60000000-0000-4000-8000-000000000001'
+    owner_id = '10000000-0000-4000-8000-000000000001'
+    member_id = '10000000-0000-4000-8000-000000000002'
+    route = base + 'review/member/demo/messages/'
+
+    def message_id(index):
+        return '62000000-0000-4000-8000-' + str(index).zfill(12)
+
+    seed = dict(owner_dm_threads=[dict(id=thread_id, owner_id=owner_id, member_id=member_id)],
+                owner_dm_messages=[dict(id=message_id(index), thread_id=thread_id, sender_id=owner_id,
+                                        body=f'架空の会話 {index:03d}。写真や近況について運営とやりとりする、通信しない表示検査です。前の内容を読み返している間の位置も確かめます。',
+                                        created_at=f'2026-01-01T{index // 60:02d}:{index % 60:02d}:00.000Z')
+                                   for index in range(1, 101)], dm_attachments=[])
+    snapshot_js = """log => {
+ const r=log.getBoundingClientRect();
+ const visible=[...log.querySelectorAll('[data-message-id]')].find(item=>item.getBoundingClientRect().bottom>r.top+8);
+ return {top:log.scrollTop,height:log.clientHeight,total:log.scrollHeight,
+  gap:log.scrollHeight-log.clientHeight-log.scrollTop,following:log.dataset.followLatest,
+  anchor:visible?.dataset.messageId,anchorTop:visible?visible.getBoundingClientRect().top-r.top:null};
+}"""
+    page_position_js = """el=>{
+ const r=el.getBoundingClientRect(),viewport=window.visualViewport,
+  top=viewport?.offsetTop||0,bottom=viewport?top+viewport.height:innerHeight;
+ const nav=document.querySelector('.bottom-nav'),n=nav?.getBoundingClientRect(),s=nav?getComputedStyle(nav):null;
+ const visible=!!n&&!!s&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity)>0&&n.height>0&&n.width>0&&n.top<bottom&&n.bottom>top;
+ const safe=visible?Math.min(bottom,n.top):bottom;
+ return {top:r.top,bottom:r.bottom,viewportTop:top,availableBottom:safe,
+  insidePageViewport:r.bottom<=safe-8&&r.bottom>top+8};
+}"""
+
+    def setup(width, scheme, enlarged):
+        context = browser.new_context(viewport={'width': width, 'height': 900}, color_scheme=scheme,
+                                      reduced_motion='reduce', service_workers='block')
+        context.add_init_script("window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();event.stopImmediatePropagation();},true)")
+        context.add_init_script("""(() => {
+ if(!['http:','https:'].includes(location.protocol))return;
+ const key=""" + json.dumps(storage_key) + ";const seed=" + json.dumps(seed, ensure_ascii=False) + """;
+ if(!sessionStorage.getItem('muumei-qa-chat-seeded')){
+  localStorage.setItem(key,JSON.stringify(seed));sessionStorage.setItem('muumei-qa-chat-seeded','1');
+ }
+})()""")
+        if enlarged:
+            context.add_init_script(TEXT_SCALE_JS)
+        state = dict(requests=[], errors=[])
+
+        def observe(request):
+            address = urlsplit(request.url)
+            if address.scheme not in ['http', 'https']:
+                return
+            row = dict(engine=engine, width=width, scheme=scheme, text_scale=200 if enlarged else 100,
+                       scope='sample-chat', method=request.method, path=address.path,
+                       external=(address.scheme, address.netloc) != origin,
+                       backend=(address.hostname or '').endswith('.supabase.co'))
+            state['requests'].append(row)
+            network.append(row)
+
+        def protect(request_route):
+            address = urlsplit(request_route.request.url)
+            if (request_route.request.method not in ['GET', 'HEAD'] or
+                (address.hostname or '').endswith('.supabase.co') or
+                (address.scheme, address.netloc) != origin):
+                return request_route.abort()
+            return request_route.continue_()
+
+        context.on('request', observe)
+        context.route('**/*', protect)
+        page = context.new_page()
+        page.on('pageerror', lambda error: state['errors'].append(str(error)))
+        return context, page, state
+
+    def open_chat(page):
+        response = page.goto(route, wait_until='domcontentloaded')
+        assert response and response.status == 200
+        wait_ready(page)
+        expect(page.locator('.sample-scope-bar')).to_contain_text('サンプル')
+        page.locator('.thread-list a.person-row').first.click()
+        expect(page.get_by_role('textbox', name='メッセージ', exact=True)).to_be_visible()
+        wait_ready(page)
+        log = page.locator('.conversation-log')
+        expect(log.locator('[data-message-id]')).to_have_count(50)
+        page.wait_for_function("""() => {
+ const l=document.querySelector('.conversation-log');
+ return l&&l.scrollHeight>l.clientHeight+100&&l.dataset.followLatest==='true'&&l.scrollHeight-l.clientHeight-l.scrollTop<=4;
+}""")
+        return log
+
+    def tail(page, expected_id=None):
+        page.wait_for_function("""id => {
+ const l=document.querySelector('.conversation-log'),last=[...(l?.querySelectorAll('[data-message-id]')||[])].at(-1);
+ return l&&l.dataset.followLatest==='true'&&l.scrollHeight-l.clientHeight-l.scrollTop<=4
+  &&(!id||last?.dataset.messageId===id);
+}""", arg=expected_id, timeout=10000)
+        log = page.locator('.conversation-log')
+        value = log.evaluate(snapshot_js)
+        assert value['gap'] <= 4 and value['following'] == 'true', value
+        last = log.locator('[data-message-id]').last
+        assert last.evaluate('(el)=>{const l=el.closest(".conversation-log"),r=el.getBoundingClientRect(),b=l.getBoundingClientRect();return r.bottom<=b.bottom+2&&r.bottom>b.top}'), 'Latest message must actually be inside the transcript viewport'
+        value['latest_page_position'] = last.evaluate(page_position_js)
+        expect(page.locator('.conversation-latest')).to_have_count(0)
+        return value
+
+    def visible_tail(page, expected_id):
+        tail(page, expected_id)
+        page.wait_for_function("""args=>{
+ const ready=()=>{
+  const item=[...document.querySelectorAll('.conversation-log [data-message-id]')].at(-1);
+  return !!item&&item.dataset.messageId===args.id&&(""" + page_position_js + """)(item).insidePageViewport;
+ };
+ if(!ready())return false;
+ return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(ready()))));
+}""", arg=dict(id=expected_id), timeout=10000)
+        value = tail(page, expected_id)
+        assert value['latest_page_position']['insidePageViewport'], value
+        return value
+
+    def window_position(page):
+        return page.evaluate('() => ({x:scrollX,y:scrollY})')
+
+    def unchanged_window(page, before):
+        after = window_position(page)
+        assert abs(after['x'] - before['x']) <= 2 and abs(after['y'] - before['y']) <= 2, dict(before=before, after=after)
+        return dict(before=before, after=after)
+
+    def reading(page, index=75):
+        value = page.locator('.conversation-log').evaluate("""(log,id) => {
+ const item=log.querySelector('[data-message-id="'+id+'"]');
+ log.scrollTop+=item.getBoundingClientRect().top-log.getBoundingClientRect().top-42;
+ log.dispatchEvent(new Event('scroll'));
+ return {id,offset:item.getBoundingClientRect().top-log.getBoundingClientRect().top};
+}""", message_id(index))
+        expect(page.locator('.conversation-log')).to_have_attribute('data-follow-latest', 'false')
+        expect(page.get_by_role('button', name='最新のメッセージへ', exact=True)).to_be_visible()
+        return value
+
+    def anchor_offset(page, anchor):
+        return page.locator('.conversation-log').evaluate("""(log,id) => {
+ const item=log.querySelector('[data-message-id="'+id+'"]');
+ return item?item.getBoundingClientRect().top-log.getBoundingClientRect().top:null;
+}""", anchor['id'])
+
+    def stable_anchor(page, anchor):
+        page.wait_for_function("""anchor => {
+ const l=document.querySelector('.conversation-log'),item=l?.querySelector('[data-message-id="'+anchor.id+'"]');
+ return l&&item&&l.dataset.followLatest==='false'&&Math.abs(item.getBoundingClientRect().top-l.getBoundingClientRect().top-anchor.offset)<=6;
+}""", arg=anchor, timeout=10000)
+        # Two actual rendering frames ensure a pending resize correction has
+        # been applied before accepting the stable reading position.
+        page.evaluate('() => new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        value = anchor_offset(page, anchor)
+        assert value is not None and abs(value - anchor['offset']) <= 6, dict(before=anchor, after=value)
+        return dict(id=anchor['id'], before=anchor['offset'], after=value)
+
+    def mutate(page, *, incoming=False, attachment_message=None):
+        page.evaluate("""args => {
+ const key=args.key,data=JSON.parse(localStorage.getItem(key));
+ if(args.incoming)data.owner_dm_messages.push({id:args.messageId,thread_id:args.thread,sender_id:args.owner,
+  body:'架空の新着メッセージ101。実際の相手には送っていません。',created_at:'2026-01-01T01:41:00.000Z'});
+ if(args.attachment)data.dm_attachments.push({id:'63000000-0000-4000-8000-000000000001',message_id:args.attachment,
+  thread_id:args.thread,uploader_id:args.owner,file_name:'表示確認用の架空ファイル.txt',mime_type:'text/plain',file_size:48,
+  demo_url:'data:text/plain;base64,U1lOVEhFVElD',created_at:'2026-01-01T01:42:00.000Z'});
+ const oldValue=localStorage.getItem(key),newValue=JSON.stringify(data);localStorage.setItem(key,newValue);
+ window.dispatchEvent(new StorageEvent('storage',{key,oldValue,newValue,storageArea:localStorage,url:location.href}));
+}""", dict(key=storage_key, incoming=incoming, attachment=attachment_message,
+            messageId=message_id(101), thread=thread_id, owner=owner_id))
+
+    def run(name, callback, *, width=390, scheme='light', enlarged=False):
+        context, page, state = setup(width, scheme, enlarged)
+        tag = f'{engine}:{width}:{scheme}:chat-scroll:{name}' + (':text-200' if enlarged else '')
+        try:
+            details = callback(page) or {}
+            invalid = [row for row in state['requests'] if row['external'] or row['backend'] or row['method'] not in ['GET', 'HEAD']]
+            assert not invalid, invalid
+            assert not state['errors'], state['errors']
+            assert_private_text(page)
+            record(tag, True, **details, synthetic_seed_messages=100, backend_attempts=0, non_get_requests=0)
+        except EvidenceError:
+            raise
+        except Exception as error:
+            record(tag, False, error=str(error), traceback=traceback.format_exc(limit=5))
+            try:
+                assert_private_text(page)
+                page.screenshot(path=str(out / f'chat-scroll-{engine}-{name}-failure.png'), full_page=True)
+            except OSError as persistence_error:
+                if recorder:
+                    recorder.fail('chat-scroll-screenshot', persistence_error, case=tag)
+                raise
+            except Exception:
+                pass
+        finally:
+            context.close()
+
+    def initial(page):
+        open_chat(page)
+        latest = visible_tail(page, message_id(100))
+        if engine == 'chromium':
+            assert_private_text(page)
+            try:
+                page.screenshot(path=str(out / 'chat-scroll-initial-344.png'))
+            except OSError as error:
+                if recorder:
+                    recorder.fail('chat-scroll-screenshot', error, case=f'{engine}:chat-scroll:initial')
+                raise
+        return dict(tail=latest, loaded_latest_window=50, layout=assert_geometry(page))
+
+    run('initial-latest-window-opens-at-tail', initial, width=344)
+
+    def reading_incoming(page):
+        open_chat(page)
+        anchor = reading(page)
+        before_window = window_position(page)
+        mutate(page, incoming=True)
+        expect(page.locator('[data-message-id="' + message_id(101) + '"]')).to_have_count(1)
+        jump = page.get_by_role('button', name='最新のメッセージへ', exact=True)
+        expect(jump).to_have_attribute('data-new-messages', 'true')
+        expect(jump).to_contain_text('新しいメッセージ')
+        preserved = stable_anchor(page, anchor)
+        window_preserved = unchanged_window(page, before_window)
+        jump.click()
+        return dict(reading_position=preserved, window_position=window_preserved,
+                    tail=visible_tail(page, message_id(101)), explicit_new_message_jump=True)
+
+    run('incoming-keeps-reading-position-until-explicit-jump', reading_incoming, scheme='dark')
+
+    def following_incoming(page):
+        open_chat(page)
+        # The reader can scroll the surrounding page while the transcript is
+        # still at its tail. An incoming message must not seize that page.
+        page.evaluate("window.scrollTo({top:0,left:0,behavior:'instant'})")
+        page.wait_for_function('''() => {
+ if(scrollY!==0)return false;
+ return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(scrollY===0))));
+}''')
+        before_window = window_position(page)
+        mutate(page, incoming=True)
+        expect(page.locator('[data-message-id="' + message_id(101) + '"]')).to_have_count(1)
+        incoming_tail = tail(page, message_id(101))
+        incoming_window = unchanged_window(page, before_window)
+        page.set_viewport_size({'width': 344, 'height': 760})
+        return dict(tail=incoming_tail, window_position=incoming_window,
+                    away_resize_tail=tail(page, message_id(101)),
+                    away_resize_window=unchanged_window(page, before_window), near_tail_follows_incoming=True)
+
+    run('incoming-follows-when-already-at-tail', following_incoming)
+
+    def older(page):
+        log = open_chat(page)
+        log.evaluate("log=>{log.scrollTop=0;log.dispatchEvent(new Event('scroll'))}")
+        expect(log).to_have_attribute('data-follow-latest', 'false')
+        anchor = dict(id=message_id(51), offset=anchor_offset(page, dict(id=message_id(51))))
+        log.get_by_role('button', name='前のメッセージを読み込む', exact=True).click()
+        expect(log.locator('[data-message-id]')).to_have_count(100)
+        return dict(reading_position=stable_anchor(page, anchor), prepended_older_messages=50)
+
+    run('older-page-preserves-visible-message-anchor', older, width=344)
+
+    def reading_resize(page):
+        log = open_chat(page)
+        anchor = reading(page)
+        before_height = log.evaluate('(el)=>el.scrollHeight')
+        mutate(page, attachment_message=message_id(60))
+        expect(page.locator('[data-message-id="' + message_id(60) + '"] .attachment')).to_have_count(1)
+        page.wait_for_function('height=>document.querySelector(".conversation-log").scrollHeight>height+20', arg=before_height)
+        attachment_anchor = stable_anchor(page, anchor)
+        page.set_viewport_size({'width': 344, 'height': 760})
+        return dict(attachment_anchor=attachment_anchor, resized_anchor=stable_anchor(page, anchor), layout=assert_geometry(page))
+
+    run('late-attachment-and-resize-keep-reader-anchor', reading_resize, scheme='dark')
+
+    def following_resize(page):
+        open_chat(page)
+        mutate(page, attachment_message=message_id(100))
+        expect(page.locator('[data-message-id="' + message_id(100) + '"] .attachment')).to_have_count(1)
+        attached = visible_tail(page, message_id(100))
+        page.set_viewport_size({'width': 344, 'height': 700})
+        return dict(attachment_tail=attached, resized_tail=visible_tail(page, message_id(100)), layout=assert_geometry(page))
+
+    run('late-attachment-and-resize-follow-tail', following_resize)
+
+    def enlarged_keyboard(page):
+        open_chat(page)
+        scale = scale_evidence(page)
+        tail(page, message_id(100))
+        reading(page)
+        jump = page.get_by_role('button', name='最新のメッセージへ', exact=True)
+        jump.focus()
+        expect(jump).to_be_focused()
+        jump.press('Enter')
+        return dict(tail=visible_tail(page, message_id(100)), keyboard_jump=True, text_scale=scale, layout=assert_geometry(page))
+
+    run('enlarged-text-and-keyboard-latest-control', enlarged_keyboard, scheme='dark', enlarged=True)
+
+    def own_send(page):
+        open_chat(page)
+        reading(page)
+        text = '架空の送信確認。運営にだけ届くサンプルの1通です。'
+        page.get_by_role('textbox', name='メッセージ', exact=True).fill(text)
+        # A rapid second submit must not duplicate an accepted send. This stays
+        # entirely within the sample Gateway; all real write requests abort.
+        page.locator('form.composer').evaluate('(form)=>{form.requestSubmit();form.requestSubmit()}')
+        sent = page.locator('.bubble.mine').filter(has=page.get_by_text(text, exact=True))
+        expect(sent).to_have_count(1)
+        expect(page.get_by_role('textbox', name='メッセージ', exact=True)).to_have_value('')
+        return dict(tail=visible_tail(page, sent.get_attribute('data-message-id')), own_send_from_reading_reaches_tail=True,
+                    rapid_submit_saved_messages=1)
+
+    run('own-send-from-reading-reaches-tail-once', own_send)
+
+
 def main():
     # Keeping the recorder importable lets its failure paths run without a
     # browser; the actual browser verification still requires Playwright.
@@ -1320,6 +1636,7 @@ def main():
                     run_case('public-and-sample-no-backend-or-real-write', boundary)
                     context.close()
                 run_motion_checks(browser, base, engine, origin, record, network, out, recorder)
+                run_chat_scroll_checks(browser, base, engine, origin, record, network, out, recorder)
                 browser.close()
     finally:
         if server:
@@ -1330,8 +1647,8 @@ def main():
                                real_registration_tested=False, real_work_acceptance_tested=False, native_install_attempted=False,
                                widths=WIDTHS, color_schemes=SCHEMES, text_scale_200_width=390,
                                total=len(checks), failures=sum(not row['ok'] for row in checks), checks=checks,
-                               sample_backend_attempts=sum(row['backend'] and row['scope'] == 'sample' for row in network),
-                               sample_non_get_requests=sum(row['method'] not in ['GET', 'HEAD'] and row['scope'] == 'sample' for row in network),
+                               sample_backend_attempts=sum(row['backend'] and row['scope'] in ['sample', 'sample-chat'] for row in network),
+                               sample_non_get_requests=sum(row['method'] not in ['GET', 'HEAD'] and row['scope'] in ['sample', 'sample-chat'] for row in network),
                                network=network))
     assert checks and all(row['ok'] for row in checks), f'{sum(not row["ok"] for row in checks)} public-experience checks failed'
 
