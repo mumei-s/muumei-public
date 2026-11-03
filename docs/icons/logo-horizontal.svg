@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 80"><g transform="translate(3 3) scale(.145)">
   <g fill="none" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M156 174v120c0 72 116 72 116 0V174" stroke="#fff0dd"/>
-    <path d="M240 338V218c0-72 116-72 116 0v120" stroke="#d3a6b4"/>
-  </g></g><text x="100" y="56" fill="#f8eee4" font-family="Arial,sans-serif" font-weight="750" letter-spacing="3" font-size="49">MUUMEI</text></svg>
+    <path d="M156 174v120c0 72 116 72 116 0V174" stroke="#2e332e"/>
+    <path d="M240 338V218c0-72 116-72 116 0v120" stroke="#8f7d65"/>
+  </g></g><text x="100" y="56" fill="#2e332e" font-family="Arial,sans-serif" font-weight="750" letter-spacing="3" font-size="49">MUUMEI</text></svg>
