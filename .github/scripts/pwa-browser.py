@@ -74,7 +74,7 @@ with sync_playwright() as p:
    page.get_by_role('button',name='もう一度試す',exact=True).click()
    expect(page.locator('#main')).to_be_visible(timeout=20000)
    expect(page.locator('#sns-title')).to_contain_text('会ったあとも、楽しみがつづく。')
-   expect(page.locator('.sns-editorial-lead')).to_contain_text('会った人と、少しだけ日常を分けあう。')
+   expect(page.locator('.sns-editorial-lead')).to_contain_text('好きなことも、何気ない今日も。')
    cards=page.locator('#entrances .entry-dock-grid > a.entry-dock-app');expect(cards).to_have_count(3)
    paths=cards.evaluate_all('(els)=>els.map(e=>new URL(e.href).pathname)')
    assert paths==[urlsplit(base).path+'entry/'+key+'/' for key in ['private','connection','work']],paths

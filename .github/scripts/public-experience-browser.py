@@ -406,7 +406,8 @@ def sample_shell(page, public_path):
     assert urlsplit(bar.get_by_role('link', name='トップへ戻る', exact=True).get_attribute('href')).path == public_path
     expect(page.locator('iframe,#view,.review-header,#review-tools,.demo-banner')).to_have_count(0)
     expect(page.get_by_role('button', name=re.compile('確認用管理画面|運営メニューを開閉|確認ツール'))).to_have_count(0)
-    expect(bar.get_by_role('button')).to_have_count(0)
+    expect(bar.get_by_role('button')).to_have_count(1)
+    expect(bar.get_by_role('button', name=re.compile(r'^演出 (?:ON|OFF)$'))).to_be_visible()
     return bar
 
 
@@ -572,6 +573,17 @@ def run_motion_checks(browser, base, engine, origin, record, network, out, recor
         source = playing(page)
         decorative_running = page.evaluate("""() => document.getAnimations().filter(a=>a.effect?.target?.closest?.('[data-motion-art]')&&a.playState==='running').length""")
         assert decorative_running > 0, 'The normal-motion introduction must actually animate its light and sparkle layers'
+        global_toggle = page.get_by_role('button', name='演出 ON', exact=True)
+        expect(global_toggle).to_have_attribute('aria-pressed', 'true')
+        expect(page.locator('.muumei-ambient')).to_be_visible()
+        global_toggle.click()
+        expect(page.locator('html')).to_have_attribute('data-motion', 'paused')
+        expect(page.locator('.muumei-ambient')).not_to_be_visible()
+        expect(page.get_by_role('button', name='演出 OFF', exact=True)).to_have_attribute('aria-pressed', 'false')
+        paused_time(page)
+        page.get_by_role('button', name='演出 OFF', exact=True).click()
+        playing(page)
+        expect(page.locator('.muumei-ambient')).to_be_visible()
         # A genuine film must change visible pixels; a static still in an MP4
         # container would pass currentTime checks but not this comparison.
         page.evaluate("""selector => {
@@ -646,7 +658,25 @@ def run_motion_checks(browser, base, engine, origin, record, network, out, recor
     def visibility(page, state):
         film, video = open_film(page)
         playing(page)
-        page.locator('#entrances').scroll_into_view_if_needed()
+        # Expand the real preview so the compact page has enough scroll
+        # range even on a tall phone viewport; no artificial spacer is added.
+        preview = page.locator('.luxe-preview-disclosure')
+        if preview.get_attribute('open') is None:
+            preview.locator('summary').click()
+        expect(preview.locator('.sns-preview-section')).to_be_visible()
+        # The compact entry section may already be in view while the film
+        # remains visible. Put the film itself above the viewport, then prove
+        # that geometry before checking the IntersectionObserver pause.
+        page.evaluate('''() => {
+ const screen=document.querySelector('[data-invitation-film] .invitation-film__screen');
+ if(!screen)throw Error('Film screen missing');
+ const rect=screen.getBoundingClientRect();
+ window.scrollTo({top:window.scrollY+rect.bottom+32,behavior:'instant'});
+}''')
+        page.wait_for_function('''() => {
+ const r=document.querySelector('[data-invitation-film] .invitation-film__screen').getBoundingClientRect();
+ return r.bottom<=0 || r.top>=innerHeight || r.right<=0 || r.left>=innerWidth;
+}''', timeout=10000)
         paused_time(page)
         page.evaluate('window.scrollTo(0,0)')
         playing(page)
@@ -1142,6 +1172,10 @@ def main():
                         expect(page.locator('#sns-title')).to_contain_text('会ったあとも、')
                         expect(page.locator('#sns-title')).to_contain_text('楽しみがつづく。')
                         preview = page.get_by_role('region', name='MUUMEIの画面イメージ', exact=True)
+                        disclosure = page.locator('.luxe-preview-disclosure')
+                        expect(disclosure).not_to_have_attribute('open', '')
+                        expect(preview).not_to_be_visible()
+                        disclosure.locator('summary').click()
                         expect(preview).to_have_attribute('data-preview', 'local-only')
                         expect(preview.get_by_role('tablist', name='画面イメージの切り替え', exact=True)).to_be_visible()
                         expect(preview.get_by_role('tab')).to_have_count(3)
@@ -1168,13 +1202,13 @@ def main():
  const intersection=(a,b)=>({width:Math.min(a.right,b.right)-Math.max(a.left,b.left),height:Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)});
  const film=box(hero.querySelector('[data-invitation-film] video'));
  const copy=[hero.querySelector('h1'),hero.querySelector('.sns-editorial-lead')].map(box);
- const preview=document.querySelector('.sns-preview-section');
+ const preview=document.querySelector('.luxe-preview-disclosure');
  return {copy_film_overlap:copy.map(text=>intersection(text,film)).filter(r=>r.width>2&&r.height>2),hero_photos:hero.querySelectorAll('img').length,
          film,preview_separate:!!preview&&!hero.contains(preview)&&preview.getBoundingClientRect().top>=hero.getBoundingClientRect().bottom-2};
 }""")
                         assert not hero_layout['copy_film_overlap'] and hero_layout['preview_separate'], hero_layout
                         if width <= 430 and not enlarged:
-                            assert hero_layout['film']['top'] < 400 and hero_layout['film']['bottom'] > hero_layout['film']['top'] + 250, hero_layout
+                            assert hero_layout['film']['top'] < 500 and hero_layout['film']['bottom'] > hero_layout['film']['top'] + 60, hero_layout
                         expect(page.locator('.sample-scope-bar,.demo-banner,.review-header,.member-experience')).to_have_count(0)
                         expect(page.get_by_role('button', name=re.compile('確認用管理画面|運営メニューを開閉|確認ツール'))).to_have_count(0)
                         cards = page.locator('#entrances .entry-dock-grid > a.entry-dock-app')
@@ -1184,7 +1218,10 @@ def main():
                         boxes = cards.evaluate_all('(items)=>items.map(item=>{const r=item.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,bottom:r.bottom}})')
                         assert max(item['top'] for item in boxes) - min(item['top'] for item in boxes) <= 2, boxes
                         assert all(boxes[index]['right'] <= boxes[index+1]['left'] for index in [0, 1]), boxes
-                        expect(page.locator('#main > #entrances:last-child')).to_be_visible()
+                        expect(page.locator('#main > #entrances')).to_be_visible()
+                        entrance_position = page.locator('#entrances').bounding_box()
+                        if not enlarged and width <= 430:
+                            assert entrance_position and entrance_position['y'] < 620, entrance_position
                         sample = page.locator('#entrances .sample-entry-panel')
                         expect(page.locator('.sample-entry-panel')).to_have_count(1)
                         assert sample.evaluate('(element)=>element.getBoundingClientRect().top') >= cards.evaluate_all('(items)=>Math.max(...items.map(item=>item.getBoundingClientRect().bottom))')
@@ -1207,6 +1244,7 @@ def main():
 
                     def public_preview():
                         visit('')
+                        page.locator('.luxe-preview-disclosure > summary').click()
                         preview = page.get_by_role('region', name='MUUMEIの画面イメージ', exact=True)
                         tab = preview.get_by_role('tab', name='日々', exact=True)
                         tab.focus()
@@ -1258,6 +1296,7 @@ def main():
                         assert urlsplit(sample.get_attribute('href')).path == public_path + 'review/'
                         expect(preview.locator('form,input,textarea,video')).to_have_count(0)
                         reload_page()
+                        page.locator('.luxe-preview-disclosure > summary').click()
                         expect(page.get_by_role('button', name='画面イメージでスキを試す', exact=True)).to_have_attribute('aria-pressed', 'false')
                         return dict(manual_preview_tabs=3, keyboard_roving_focus=True, preview_reactions_local_only=True,
                                     card_color_choices=3, layouts=layouts, preview_not_persisted=True, autoplay_media=0)
@@ -1396,7 +1435,7 @@ def main():
                                 if key == 'work':
                                     expect(page.locator('.public-work-form')).to_be_visible()
                                 else:
-                                    expect(page.locator('.member-journal .home-shortcuts')).to_be_visible()
+                                    expect(page.locator('.member-hub .hub-compose')).to_be_visible()
                                 page.locator('.sample-scope-bar').get_by_role('link', name='トップへ戻る', exact=True).click()
                                 wait_ready(page)
                                 expect(page.locator('[data-surface="public-information"]')).to_be_visible()
@@ -1408,14 +1447,29 @@ def main():
                         visit('review/', sample=True)
                         assert urlsplit(page.url).path == sample_home_path
                         sample_shell(page, public_path)
-                        expect(page.locator('.member-journal .home-shortcuts')).to_be_visible()
+                        expect(page.locator('.member-hub .hub-compose')).to_be_visible()
                         expect(page.locator('.member-journal .home-feature')).to_have_count(0)
-                        expect(page.get_by_role('navigation', name='今日のMUUMEI', exact=True).get_by_role('link')).to_have_count(3)
-                        expect(page.locator('.journal-write-entry')).to_be_visible()
+                        links = page.get_by_role('navigation', name='連絡とつながり', exact=True).get_by_role('link')
+                        expect(links).to_have_count(2)
+                        member_prefix = public_path + 'review/member/demo/'
+                        assert urlsplit(links.nth(0).get_attribute('href')).path == member_prefix + 'messages'
+                        assert urlsplit(links.nth(1).get_attribute('href')).path == member_prefix + 'people'
+                        compose = page.locator('.hub-compose')
+                        expect(compose).to_be_visible()
+                        compose_url = urlsplit(compose.get_attribute('href'))
+                        assert compose_url.path == member_prefix + 'moments' and compose_url.fragment == 'share'
+                        card_entry = page.locator('.member-welcome-link')
+                        expect(card_entry).to_be_visible()
+                        assert urlsplit(card_entry.get_attribute('href')).path == member_prefix + 'pass'
                         expect(page.locator('#home-next-title')).to_have_text('次のお誘い')
                         expect(page.locator('#home-moments-title')).to_have_text('みんなの近況')
-                        expect(page.locator('.home-next-list .next-item')).to_have_count(2)
-                        expect(page.locator('.home-moments article.moment')).to_have_count(2)
+                        expect(page.locator('.hub-invitation')).to_have_count(2)
+                        expect(page.locator('.hub-moment')).to_have_count(3)
+                        for link in page.locator('.hub-invitation').all():
+                            assert urlsplit(link.get_attribute('href')).path == member_prefix + 'next'
+                        for link in page.locator('.hub-moment').all():
+                            assert urlsplit(link.get_attribute('href')).path == member_prefix + 'moments'
+                        expect(page.locator('.home-next-list .next-item,.home-moments article.moment')).to_have_count(0)
                         value = assert_geometry(page)
                         result = contrasts(page, ['.sample-scope-brand', '.sample-scope-bar > a', '#main h1'])
                         screenshot('member-home')
@@ -1509,16 +1563,21 @@ def main():
                         expect(pass_card).to_be_visible()
                         expect(pass_card.locator('.pass-card-label')).to_contain_text('メンバーカード')
                         pass_card.scroll_into_view_if_needed()
-                        shine = pass_card.get_by_role('button', name='光をあてる', exact=True)
+                        presentation = page.locator('.member-pass-presentation')
+                        shine = presentation.get_by_role('button', name='カードに光をあてる', exact=True)
+                        expect(pass_card.get_by_role('button')).to_have_count(0)
+                        if not enlarged:
+                            card_dimensions = pass_card.bounding_box()
+                            assert card_dimensions and 1.50 <= card_dimensions['width'] / card_dimensions['height'] <= 1.65, card_dimensions
                         expect(shine).to_have_attribute('aria-pressed', 'false')
                         identity_before = pass_card.locator('.pass-meta').inner_text()
                         shine.click()
-                        expect(pass_card.get_by_role('button', name='光をもどす', exact=True)).to_have_attribute('aria-pressed', 'true')
+                        expect(presentation.get_by_role('button', name='光をもどす', exact=True)).to_have_attribute('aria-pressed', 'true')
                         expect(pass_card).to_have_class(re.compile(r'\bfoil-lit\b'))
                         assert pass_card.locator('.pass-meta').inner_text() == identity_before
                         assert pass_card.evaluate('(element)=>getComputedStyle(element,"::after").animationName') == 'none', 'Reduced motion should suppress the card sweep'
-                        pass_card.get_by_role('button', name='光をもどす', exact=True).click()
-                        expect(pass_card.get_by_role('button', name='光をあてる', exact=True)).to_have_attribute('aria-pressed', 'false')
+                        presentation.get_by_role('button', name='光をもどす', exact=True).click()
+                        expect(presentation.get_by_role('button', name='カードに光をあてる', exact=True)).to_have_attribute('aria-pressed', 'false')
                         assert pass_card.evaluate('(element)=>element.scrollTop') == 0, 'Card decoration must not create an internal focus scroll that hides identity'
                         pass_layout = assert_geometry(page)
                         pass_contrast = contrasts(page, ['.pass-card-label', '.pass-note'])
