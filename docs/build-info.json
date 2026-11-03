@@ -1,13 +1,13 @@
 {
   "surface": "app",
   "base": "/muumei-public/",
-  "sourceRevision": "daed9c791a790d7fc37b2ea79163f1aa7b1ad502",
-  "packagerRevision": "daed9c791a790d7fc37b2ea79163f1aa7b1ad502",
+  "sourceRevision": "92298e379b0ccf42fab5fb01c60f347a42026a16",
+  "packagerRevision": "92298e379b0ccf42fab5fb01c60f347a42026a16",
   "ready": false,
   "workIntakeFormEnabled": false,
   "workGuideOnlyRoutes": [
     "jobs",
     "direct"
   ],
-  "generatedAt": "2026-11-03T18:18:23.131Z"
+  "generatedAt": "2026-11-03T18:45:19.949Z"
 }
