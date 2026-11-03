@@ -1171,6 +1171,20 @@ def main():
                         expect(page.locator('.sns-editorial-hero')).to_be_visible()
                         expect(page.locator('#sns-title')).to_contain_text('会ったあとも、')
                         expect(page.locator('#sns-title')).to_contain_text('楽しみがつづく。')
+                        # The login label must sit in a centered control, rather
+                        # than at the top of the former empty square box.
+                        header_layout = page.locator('.public-header-main').evaluate("""header => {
+ const login=header.querySelector('.public-login'),style=getComputedStyle(login);
+ const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+ return {header:rect(header),login:rect(login),display:style.display,align:style.alignItems,justify:style.justifyContent};
+}""")
+                        assert header_layout['display'] in ['flex', 'inline-flex'] and header_layout['align'] == header_layout['justify'] == 'center', header_layout
+                        header_box, login_box = header_layout['header'], header_layout['login']
+                        assert login_box['width'] >= 44 and login_box['height'] >= 44, header_layout
+                        assert login_box['left'] >= header_box['left'] - 1 and login_box['right'] <= header_box['right'] + 1 and login_box['top'] >= header_box['top'] - 1 and login_box['bottom'] <= header_box['bottom'] + 1, header_layout
+                        copy_padding = page.locator('.sns-editorial-hero-copy').evaluate('(element)=>{const s=getComputedStyle(element);return {left:parseFloat(s.paddingLeft),right:parseFloat(s.paddingRight)}}')
+                        if width in [320, 344, 390] and not enlarged:
+                            assert min(copy_padding.values()) >= 12, copy_padding
                         preview = page.get_by_role('region', name='MUUMEIの画面イメージ', exact=True)
                         disclosure = page.locator('.luxe-preview-disclosure')
                         expect(disclosure).not_to_have_attribute('open', '')
@@ -1236,7 +1250,7 @@ def main():
                         sample_layout = assert_geometry(page)
                         result = contrasts(page, ['#sns-title', '.sns-editorial-lead', '.sns-editorial-primary', '.entry-dock-app > strong', '.sample-entry-panel p'])
                         screenshot('top')
-                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, hero_photos=0, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
+                        return dict(layout=value, dock_layout=dock_layout, small_sample_layout=sample_layout, heading_metrics=heading_metrics, header_layout=header_layout, copy_padding=copy_padding, hero_photos=0, hero_layout=hero_layout, contrast=result, ordinary_surface=True, three_horizontal_entrances=True,
                                     film_poster_decoded=True, reduced_motion_video_requests=0, manual_preview_separate_from_film=True,
                                     text_scale=scale_evidence(page) if enlarged else 100)
 
