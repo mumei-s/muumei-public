@@ -35,14 +35,17 @@ jobs:
           assert re.fullmatch(r'[0-9a-f]{40}',revision),'Invalid source revision'
           assert public['mode']=='public-information' and public['base']=='/muumei-public/'
           assert all(public[key] is False for key in ['memberRuntime','ownerRuntime','sampleData','backendConnection'])
-          assert sample['sourceRevision']==receipt['sourceRevision']==revision,'Public/sample revision mismatch'
+          assert receipt['sourceRevision']==revision
+          assert sample['sourceRevision']==receipt['participantSampleSourceRevision']
+          assert re.fullmatch(r'[0-9a-f]{40}',sample['sourceRevision'])
           assert sample['mode']=='synthetic-only' and sample['surface']=='participant'
           assert sample['ownerIncluded'] is False and sample['realOwner'] is False
           assert receipt['mode']=='separated-public-and-participant-sample'
-          assert all(receipt[key] is False for key in ['ownerIncluded','realBackendChanged','registrationEnabled'])
+          assert all(receipt[key] is False for key in ['ownerIncluded','realBackendChanged'])
+          assert receipt['registrationEnabled'] is True and receipt['inviteRegistrationEnabled'] is True
           member=load('review/member/build-info.json')
-          assert member['sourceRevision']==revision and member['surface']=='app' and member['ready'] is False
-          # Real member/Auth, public and sample pages share the reviewed source.
+          assert member['sourceRevision']==sample['sourceRevision'] and member['surface']=='app' and member['ready'] is False
+          # The manifest records the source of each independently shipped surface.
           actual_build=load('build-info.json')
           assert actual_build['sourceRevision']==receipt['memberSourceRevision']==revision
           assert receipt['realMemberRuntime']=='current-compiled'
@@ -50,7 +53,7 @@ jobs:
           assert actual_build['workIntakeFormEnabled'] is False
           assert actual_build['workGuideOnlyRoutes']==['jobs','direct']
           guide=receipt['workGuide']
-          assert guide['mode']=='static-information' and guide['sourceRevision']==revision
+          assert guide['mode']=='static-information' and re.fullmatch(r'[0-9a-f]{40}',guide['sourceRevision'])
           assert all(guide[key] is False for key in ['submissionEnabled','backendConnection','javascript'])
           assert re.fullmatch(r'assets/work-guide-[a-f0-9]{12}\.css',guide['stylePath'])
           import hashlib
@@ -61,10 +64,11 @@ jobs:
             assert "script-src 'none'" in html and "connect-src 'none'" in html and "form-action 'none'" in html
           assert hashlib.sha256((root/guide['stylePath']).read_bytes()).hexdigest()==guide['cssSha256']
           actual=load('muumei-config.json')
-          assert actual['ready'] is False and actual['key']==''
+          assert actual['ready'] is False and actual['inviteRegistrationEnabled'] is True and actual['key']==''
           assert actual['configUrl']=='https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config'
           disconnected=load('review/member/muumei-config.json')
           assert disconnected['url']==disconnected['key']=='' and disconnected['ready'] is False
+          assert not disconnected.get('inviteRegistrationEnabled',False)
           for config in [actual,disconnected]:
             operator=config.get('operator',{})
             assert operator.get('name','') in ['', 'MUUMEI', 'MUUMEI 運営']
@@ -94,7 +98,7 @@ jobs:
             if file.suffix=='.json':assert json.loads(content).get('surface')!='owner',str(name)
             if file.suffix=='.js':
               assert not any(marker in content for marker in ['owner-shell','owner-intake-tabs','確認用管理画面','受付・承認を開く']),str(name)
-          print(json.dumps(dict(sourceRevision=revision,files=count,ownerIncluded=False,registrationEnabled=False)))
+          print(json.dumps(dict(sourceRevision=revision,files=count,ownerIncluded=False,inviteRegistrationEnabled=True)))
           PY
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -135,7 +139,8 @@ jobs:
           paths=['public-site-release.json','release-receipt.json','review/release.json','review/member/build-info.json','build-info.json']
           wanted={path:json.loads((root/path).read_text()) for path in paths}
           revision=wanted['public-site-release.json']['sourceRevision']
-          assert wanted['review/release.json']['sourceRevision']==wanted['release-receipt.json']['sourceRevision']==wanted['build-info.json']['sourceRevision']==revision
+          assert wanted['release-receipt.json']['sourceRevision']==wanted['build-info.json']['sourceRevision']==revision
+          assert wanted['review/release.json']['sourceRevision']==wanted['release-receipt.json']['participantSampleSourceRevision']
           for attempt in range(20):
             try:
               actual={}
