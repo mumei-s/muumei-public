@@ -1,7 +1,7 @@
 {
-  "sourceRevision": "072077fd533b71f7f23586319da3b39e2c666d6f",
+  "sourceRevision": "2f4c7aa55189071191728686664d84f889e628e1",
   "mode": "separated-public-and-participant-sample",
-  "memberSourceRevision": "072077fd533b71f7f23586319da3b39e2c666d6f",
+  "memberSourceRevision": "2f4c7aa55189071191728686664d84f889e628e1",
   "realMemberRuntime": "current-compiled",
   "workGuide": {
     "mode": "static-information",
@@ -16,6 +16,8 @@
     "cssSha256": "02d3526f7e3250ba095f6ba0e4f4e0a91bde0180f561865d6e5b57dd7cfb5b79"
   },
   "realBackendChanged": false,
-  "registrationEnabled": false,
-  "ownerIncluded": false
+  "registrationEnabled": true,
+  "ownerIncluded": false,
+  "participantSampleSourceRevision": "072077fd533b71f7f23586319da3b39e2c666d6f",
+  "inviteRegistrationEnabled": true
 }

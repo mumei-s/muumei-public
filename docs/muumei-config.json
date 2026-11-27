@@ -9,5 +9,6 @@
     "address": "",
     "contact": ""
   },
-  "configUrl": "https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config"
+  "configUrl": "https://slamzhgsawfnmwlejgqp.supabase.co/functions/v1/public-config",
+  "inviteRegistrationEnabled": true
 }
